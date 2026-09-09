@@ -1,6 +1,6 @@
 # Contiinex presentation
 
-Eight-slide presentation, with official Contiinex branding, animated claim journeys and keyboard navigation. The ownership-slide footnote and its marker have been removed.
+Eight-slide presentation, with official Contiinex branding, claim-journey charts that build one stage per page turn, and keyboard navigation. The ownership-slide footnote and its marker have been removed.
 
 ## GitHub Pages
 

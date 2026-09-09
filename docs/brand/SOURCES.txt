@@ -1,0 +1,4 @@
+Brand assets and design tokens sourced from https://www.contiinex.com/ on 2026-09-09.
+Logo: https://www.contiinex.com/assets/aug-img/contiinexR.png
+Font: Poppins, Google Fonts files referenced by the official website.
+Primary #dd133c; accent #249cf4; heading #18191e; body #4e5562; surface #fff0f3; background #ffffff.

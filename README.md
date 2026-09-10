@@ -1,6 +1,6 @@
 # Contiinex presentation
 
-Nine-slide presentation, with official Contiinex branding, claim-journey charts that build one stage per page turn, and keyboard navigation. The ownership-slide footnote and its marker have been removed.
+Fourteen-slide, hospital-facing presentation that ALPS advisors bring to hospital leadership, with official Contiinex branding, a compounding-risk chart and an intercept map that build one stage per page turn, an interactive operating-margin calculator, a dismissable first-person pitch track that a customer can read or an advisor can read aloud, source notes per slide, and keyboard, swipe and footer navigation.
 
 ## GitHub Pages
 

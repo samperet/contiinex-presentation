@@ -2,3 +2,10 @@ Brand assets and design tokens sourced from https://www.contiinex.com/ on 2026-0
 Logo: https://www.contiinex.com/assets/aug-img/contiinexR.png
 Font: Poppins, Google Fonts files referenced by the official website.
 Primary #dd133c; accent #249cf4; heading #18191e; body #4e5562; surface #fff0f3; background #ffffff.
+
+ALPS assets sourced from https://acadialps.com/ on 2026-09-09 for the Vetted by ALPS slide.
+Logo: https://www.acadialps.com/assets/img/ALPS-Logo.png (alps-logo.png)
+Mountain hero: https://www.acadialps.com/assets/img/White-ALPS.webp (alps-mountains.webp)
+ALPS tokens: hero blue #2da4f2 (dark #1f8fda); blue #2299ce; navy #103758; navy deep #0c2942.
+
+Case study photo: cleveland-clinic.jpg, from https://commons.wikimedia.org/wiki/File:Cleveland_Clinic_entrance_(111095553).jpg by Mutaz Albar, CC BY 3.0 (https://creativecommons.org/licenses/by/3.0/), resized to 1600px on 2026-09-09.

@@ -81,9 +81,6 @@ footer{position:sticky;bottom:0;z-index:5;background:#fff}.talk{position:sticky;
 @media(max-width:1000px){.case-panel.compact .case-side{padding-left:0;padding-top:18px}}
 @media(max-width:750px){.case-panel.compact .case-banner{min-height:170px;padding:18px 16px}.case-panel.compact .case-tag{margin-bottom:10px}.case-panel.compact .case{padding:18px 16px 2px}.case-panel.compact .case-quote{font-size:22px}}
 
-/* Revenue-cycle ring on the intervention slide */
-.ring{display:block;width:100%;max-width:760px;height:auto;margin:0 auto;overflow:visible}.ring .seg{fill:none;stroke:#e2e4e8;stroke-width:10;stroke-linecap:round;transition:stroke .5s ease}.ring .seg.on{stroke:#249cf4}.ring .node circle,.ring .node path{transition:all .35s ease}.ring .lbl{font-size:15px;font-weight:500;fill:#4e5562;letter-spacing:-.01em}.ring .lbl.on{fill:#176ea8}.ring .lbl.cur{fill:#18191e}.ring .risk{font-size:12px;fill:#dd133c;transition:fill .35s ease}.ring .risk.on{fill:#9aa0aa;text-decoration:line-through}.ring .center-mode{font-size:11px;letter-spacing:1.5px;fill:#176ea8}.ring .center-stage{font-size:28px;font-weight:500;letter-spacing:-.03em;fill:#18191e}.ring .center-sub{font-size:13px;fill:#626772}
-@media(max-width:750px){.ring .lbl,.ring .risk{display:none}.ring{max-width:360px}.ring .center-stage{font-size:30px}.ring .center-mode{font-size:13px}.ring .center-sub{font-size:15px}}
 
 /* Pricing page: three-part structure plus the consumption calculator from the financial model */
 .price-strip{display:grid;grid-template-columns:repeat(3,1fr);gap:28px;margin-top:26px}.price-strip>div{border-top:1px solid #e75a77;padding-top:14px}.price-strip h3{font-size:24px;margin:10px 0 6px}.price-strip p{font-size:14px;line-height:1.5;color:#4e5562;margin:0}
@@ -113,3 +110,17 @@ footer{position:sticky;bottom:0;z-index:5;background:#fff}.talk{position:sticky;
 @media(max-width:750px){.reading{grid-template-columns:1fr;gap:24px}.reading-item h3{font-size:22px}}
 
 @media(max-width:1000px){.price-grid{grid-template-columns:1fr;gap:26px}.price-settings .price-inputs{grid-template-columns:1fr}.price-settings .derived{grid-template-columns:1fr 1fr}}
+
+/* Compounding risk: each stage pairs the manual risk with the Contiinex intervention */
+.event.dual{padding:0;border-left:0;background:none;display:grid;grid-template-rows:auto auto;gap:12px}.event-risk,.event-fix{padding:20px 22px;display:flex;flex-direction:column}.event-risk{border-left:1px solid #dd133c77;background:linear-gradient(120deg,#dd133c10,transparent)}.event-fix{border-left:1px solid #249cf4;background:linear-gradient(120deg,#e5f3fe,transparent)}.event-fix .event-label,.event-fix .event-end{color:#176ea8}.event.dual h3{font-size:21px;margin:10px 0 8px;line-height:1.2}.event.dual p{font-size:14px;line-height:1.55;margin:0}.event.dual .event-stat{font-size:12px;padding-top:10px;margin-top:10px}.event-fix small{display:block;font-size:12px;line-height:1.45;color:#626772;margin-top:8px}.event.dual .event-end{margin-top:12px;padding-top:0;font-size:13px}
+@media(max-width:1000px){.event.dual{gap:10px}.event-risk,.event-fix{padding:16px}.event.dual h3{font-size:19px}}
+@media(max-width:750px){.event.dual{min-height:0}}
+
+/* Pricing: two consumption modules from the pricing workbook */
+.mods{display:grid;grid-template-columns:1fr 1fr;gap:4vw;margin-top:18px}.mod{border:1px solid #e2e4e8;border-radius:14px;padding:20px 22px 18px;background:#fff}.mod .product-label{color:#176ea8}.mod-price{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin:10px 0 16px}.mod-price strong{font-size:clamp(34px,3.4vw,46px);font-weight:500;letter-spacing:-.05em;line-height:1;color:#18191e}.mod-price span{font-size:13px;color:#4e5562;max-width:280px;line-height:1.4}.mod-save{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;border-top:1px solid #e2e4e8;margin-top:16px;padding-top:14px}.mod-save strong{font-size:clamp(28px,2.8vw,38px);font-weight:500;letter-spacing:-.05em;line-height:1;color:#18191e}.mod-save span{font-size:13px;color:#4e5562}.mod-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:14px}.mod-stats b{display:block;font-weight:500;font-size:18px;letter-spacing:-.02em}.mod-stats span{display:block;font-size:11px;line-height:1.4;color:#626772;margin-top:3px}
+.price-total{display:grid;grid-template-columns:1fr 1fr 1.3fr;gap:4vw;align-items:start;margin-top:22px;border-top:1px solid #e2e4e8;padding-top:20px}.price-total>div>strong{display:block;font-size:clamp(34px,3.6vw,52px);font-weight:500;letter-spacing:-.06em;line-height:1;color:#18191e}.price-total>div>p{font-size:14px;line-height:1.5;color:#4e5562;margin:8px 0 0;max-width:300px}.price-total .price-net{margin-top:0;border-top:0;padding-top:0}
+.price-settings.two{display:grid;grid-template-columns:1fr 1fr;gap:0 40px}.price-settings.two .price-inputs{display:block}.price-settings.two .assume-head{margin:4px 0 2px}.price-settings.two .derived{grid-template-columns:repeat(3,1fr);margin-top:10px;padding-top:10px}
+@media(max-width:1000px){.mods,.price-total,.price-settings.two{grid-template-columns:1fr;gap:22px}}
+@media(max-width:750px){.mod{padding:16px}.mod-stats{grid-template-columns:1fr;gap:8px}.price-settings.two .derived{grid-template-columns:1fr}}
+
+.page-link{display:inline-flex;align-items:center;gap:8px;margin-top:4px;font-size:13px;color:#dd133c;text-decoration:none;border-bottom:1px solid #dd133c55;padding-bottom:2px}.page-link:hover{border-bottom-color:#dd133c}

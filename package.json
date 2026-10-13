@@ -7,7 +7,8 @@
   },
   "scripts": {
     "dev": "vite --config vite.pages.config.ts",
-    "build:pages": "vite build --config vite.pages.config.ts"
+    "build:pages": "vite build --config vite.pages.config.ts",
+    "test": "node --test test/roi-model.test.ts"
   },
   "dependencies": {
     "react": "19.2.6",

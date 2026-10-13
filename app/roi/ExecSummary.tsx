@@ -2,12 +2,12 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { compute, fmt as F, summary, VENDOR, type Inputs, type Pair, type Solution } from './model';
 
-type Fmt = 'x' | 'hours' | 'compact';
-const formatCount = (v: number, f: Fmt) =>
+export type Fmt = 'x' | 'hours' | 'compact';
+export const formatCount = (v: number, f: Fmt) =>
   f === 'x' ? F.oneDp.format(v) + 'x' : f === 'hours' ? (v >= 1e4 ? Math.round(v / 1e3) + 'K' : F.int(v)) + ' hrs' : (v < 0 ? '−' : '') + F.moneyCompact(v);
 
 // Counts a headline number up from zero when it appears, then eases between values.
-function Count({ value, f }: { value: number; f: Fmt }) {
+export function Count({ value, f }: { value: number; f: Fmt }) {
   const [shown, setShown] = useState(value);
   const last = useRef(0);
   useEffect(() => {

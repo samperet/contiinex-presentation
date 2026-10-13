@@ -71,3 +71,75 @@ test("zero automation spend does not divide by zero", () => {
   assert.equal(r.roi, 0);
   assert.equal(v.roiTxt, "0.0x");
 });
+
+// ---- Portfolio of modules -----------------------------------------------------
+import * as P from "../app/roi/portfolio.ts";
+
+function only(id: string, plan = P.defaultPlan()) {
+  Object.keys(plan.mods).forEach(k => (plan.mods[k].on = k === id));
+  return plan;
+}
+
+test("one module with no license matches the single-process model", () => {
+  for (const sol of ROI.SOLUTIONS) {
+    const plan = only(sol.id);
+    plan.licenseSet = true; plan.g.license = 0;
+    const p = P.portfolio(plan);
+    const { r } = run(sol.id);
+    assert.equal(p.total, r.D.total, sol.id);
+    assert.equal(p.cap, r.D.cap, sol.id);
+    assert.equal(p.spend, r.D.cnx, sol.id);
+    assert.equal(p.overlap.scale, 1, sol.id);
+  }
+});
+
+test("overlapping denial shares are scaled to the denial pool", () => {
+  const p = P.portfolio(P.defaultPlan());
+  // 12% x (15+10+20+15+40+25)% = 15% of NPR claimed against a 12% pool
+  assert.ok(Math.abs(p.overlap.claimedPct - 15) < 1e-9);
+  assert.ok(Math.abs(p.overlap.scale - 0.8) < 1e-9);
+  const denialAddr = p.on.filter(m => P.DENIAL_POOL_IDS.includes(m.sol.id)).reduce((t, m) => t + m.addressable, 0);
+  assert.ok(Math.abs(denialAddr - p.npr * 0.12) < 1);
+});
+
+test("license is charged once and follows NPR until set", () => {
+  const plan = P.defaultPlan();
+  assert.equal(P.license(plan), 500000);
+  const a = P.portfolio(plan);
+  plan.licenseSet = true; plan.g.license = 0;
+  const b = P.portfolio(plan);
+  assert.equal(Math.round(b.total - a.total), 500000);
+});
+
+test("switching modules off removes their value", () => {
+  const plan = P.defaultPlan();
+  const all = P.portfolio(plan).total;
+  plan.mods.pcl.on = false;
+  assert.ok(P.portfolio(plan).total < all);
+  Object.keys(plan.mods).forEach(k => (plan.mods[k].on = false));
+  const none = P.portfolio(plan);
+  assert.equal(none.cap, 0);
+  assert.equal(none.total, -P.license(plan));
+});
+
+test("cumulative net benefit starts at minus implementation and breaks even after go-live", () => {
+  const plan = P.defaultPlan();
+  plan.g.impl = 400000;
+  const p = P.portfolio(plan);
+  assert.equal(p.cumulative.length, P.HORIZON + 1);
+  assert.equal(p.cumulative[0], -400000);
+  assert.ok(p.cumulative[plan.g.golive] < p.cumulative[0]); // license only until go-live
+  assert.ok(p.breakeven !== null && p.breakeven > plan.g.golive);
+  assert.ok(p.cumulative[p.breakeven!] >= 0 && p.cumulative[p.breakeven! - 1] < 0);
+});
+
+test("share links round-trip the plan", () => {
+  const plan = P.defaultPlan();
+  plan.hospital = "Riverside Health";
+  plan.mods.cod.on = false;
+  plan.mods.ebv.inp.agents = 40;
+  plan.g.npr = 1.2e9;
+  const back = P.planFromHash("#" + P.planToHash(plan));
+  assert.deepEqual(back, plan);
+  assert.deepEqual(P.planFromHash("#plan=not-json"), null);
+});

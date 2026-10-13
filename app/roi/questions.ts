@@ -1,4 +1,4 @@
-import { fieldDefs, fmt as F, GLOBAL_FIELDS, getSolution, solutionDefaults, VENDOR, type Field, type Inputs, type Solution } from './model';
+import { fieldDefs, fmt as F, VENDOR, type Field, type Inputs, type Solution } from './model';
 
 type Calc = Record<string, number>;
 export type Question =
@@ -67,60 +67,4 @@ export function validate(key: string, f: Field, v: number): string {
   if (v < 0) return 'Please enter a positive number.';
   if (f.unit === '%' && v > 100) return 'Please enter a percentage up to 100.';
   return '';
-}
-
-export function answerText(q: Question, sol: Solution, inp: Inputs, hospital: string): string {
-  if (q.type === 'choice') return sol.name;
-  if (q.type === 'text') return hospital.trim() || '—';
-  const suf = suffix(q.field);
-  return prefix(q.field) + fieldText(q.field, inp[q.key]) + (suf === '%' || suf === 'M' ? suf : suf ? ' ' + suf : '');
-}
-
-// ---- Answers: persistence and links ------------------------------------------------
-export type Answers = { solId: string; hospital: string; inp: Inputs; answered: boolean };
-const STORAGE_KEY = 'contiinex-roi-v1';
-
-export function withProcess(a: Answers, id: string): Answers {
-  const sol = getSolution(id);
-  if (sol.id === a.solId) return a;
-  const inp: Inputs = {};
-  Object.keys(a.inp).forEach(k => { if (k in GLOBAL_FIELDS) inp[k] = a.inp[k]; });
-  return { ...a, solId: sol.id, inp: { ...inp, ...solutionDefaults(sol) } };
-}
-
-// Rebuild answers from untrusted values (storage or a link), keeping only known numeric inputs.
-export function sanitize(solId: string | null | undefined, hospital: string | null | undefined, raw: Record<string, unknown>, answered: boolean, base: Inputs): Answers {
-  const sol = getSolution(solId);
-  const inp: Inputs = { ...base };
-  Object.keys(inp).forEach(k => {
-    const v = Number(raw[k]);
-    if (raw[k] != null && raw[k] !== '' && isFinite(v) && v >= 0) inp[k] = v;
-  });
-  return { solId: sol.id, hospital: String(hospital ?? '').slice(0, 120), inp, answered };
-}
-
-export function loadAnswers(): Partial<Answers> | null {
-  try {
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
-    return saved && typeof saved === 'object' && saved.inp ? saved : null;
-  } catch {
-    return null;
-  }
-}
-
-export function saveAnswers(a: Answers) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(a));
-  } catch {
-    /* storage unavailable */
-  }
-}
-
-// ?p=ebv&h=Name&npr=...  (#results opens the summary directly)
-export function answersQuery(a: Answers): string {
-  const params = new URLSearchParams();
-  params.set('p', a.solId);
-  if (a.hospital.trim()) params.set('h', a.hospital.trim());
-  Object.keys(a.inp).forEach(k => params.set(k, String(a.inp[k])));
-  return params.toString();
 }

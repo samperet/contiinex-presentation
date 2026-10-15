@@ -2,23 +2,13 @@
 import { useState } from 'react';
 import { fmt as F } from './model';
 import { HORIZON } from './portfolio';
+import { yScale } from './scale';
 
 const W = 960, H = 300, L = 64, R = 24, T = 18, B = 34;
 
-// Ticks at round values covering [min, max].
-function ticks(min: number, max: number): number[] {
-  const span = max - min || 1;
-  const raw = span / 4, mag = Math.pow(10, Math.floor(Math.log10(raw)));
-  const step = [1, 2, 2.5, 5, 10].map(m => m * mag).find(s => s >= raw) ?? raw;
-  const out: number[] = [];
-  for (let v = Math.floor(min / step) * step; v <= max + step * 0.001; v += step) out.push(v);
-  return out;
-}
-
 export default function NetBenefitChart({ cumulative, breakeven, golive }: { cumulative: number[]; breakeven: number | null; golive: number }) {
   const [hover, setHover] = useState<number | null>(null);
-  const ys = ticks(Math.min(0, ...cumulative), Math.max(0, ...cumulative));
-  const yMin = ys[0], yMax = ys[ys.length - 1];
+  const { top: yMax, bottom: yMin, ticks: ys } = yScale(Math.min(0, ...cumulative), Math.max(0, ...cumulative));
   const x = (m: number) => L + (m / HORIZON) * (W - L - R);
   const y = (v: number) => T + (1 - (v - yMin) / (yMax - yMin || 1)) * (H - T - B);
   const line = cumulative.map((v, m) => (m ? 'L' : 'M') + x(m).toFixed(1) + ' ' + y(v).toFixed(1)).join('');

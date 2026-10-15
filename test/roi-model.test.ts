@@ -143,3 +143,17 @@ test("share links round-trip the plan", () => {
   assert.deepEqual(back, plan);
   assert.deepEqual(P.planFromHash("#plan=not-json"), null);
 });
+
+// ---- Net benefit chart scale ---------------------------------------------------
+import { yScale } from "../app/roi/scale.ts";
+
+test("chart scale always contains the whole line", () => {
+  const cases: [number, number][] = [[-0.33e6, 119.06e6], [-0.2e6, 38e6], [-750e3, 63e6], [0, 4e6], [-5e6, -1e6], [-2e6, 0.5e6], [0, 100e6]];
+  for (const [min, max] of cases) {
+    const s = yScale(min, max);
+    assert.ok(s.top >= max, `top ${s.top} < max ${max}`);
+    assert.ok(s.bottom <= min, `bottom ${s.bottom} > min ${min}`);
+    assert.ok(s.ticks.includes(0), `no zero tick for ${min}..${max}`);
+    assert.ok(s.ticks.every(t => t >= s.bottom - 1 && t <= s.top + 1));
+  }
+});

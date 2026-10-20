@@ -1,14 +1,14 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Check, ChevronDown, ChevronUp, SlidersHorizontal, X } from 'lucide-react';
-import { fmt as F, GROUPS, SOLUTIONS, summary, type Field } from './model';
+import { ArrowRight, Check, ChevronDown, ChevronUp, SlidersHorizontal, X } from 'lucide-react';
+import { fmt as F, GLOBAL_FIELDS, GROUPS, SOLUTIONS, summary, type Field } from './model';
 import { Count } from './ExecSummary';
 import Sankey from './Sankey';
 import NetBenefitChart from './NetBenefitChart';
 import { hospitalQuestions, moduleQuestions, type IQ } from './intake';
 import {
-  defaultPlan, DENIAL_POOL_IDS, license, loadPlan, moduleDefaults, moduleInputs, MODULE_KEYS, planFromHash, planToHash,
-  portfolio, sanitizePlan, savePlan, type Plan,
+  defaultPlan, DENIAL_POOL_IDS, isTailored, license, loadPlan, moduleInputs, MODULE_KEYS, planFromHash, planToHash,
+  portfolio, PROFILE_NPR, sanitizePlan, savePlan, sizePlan, type Plan,
 } from './portfolio';
 import { clamp, fieldText, parseField, prefix, rangeText, suffix, validate } from './questions';
 
@@ -31,7 +31,7 @@ function initialPlan(): Plan {
     raw.mods = Object.fromEntries(SOLUTIONS.map(s => [s.id, s.id === p ? { on: true, inp } : { on: false }]));
     plan = sanitizePlan(raw);
   } else {
-    if (q.get('npr') && isFinite(Number(q.get('npr'))) && Number(q.get('npr')) > 0) plan = { ...plan, g: { ...plan.g, npr: Number(q.get('npr')) } };
+    if (q.get('npr') && isFinite(Number(q.get('npr'))) && Number(q.get('npr')) > 0) plan = sizePlan(plan, Number(q.get('npr')));
     if (p && plan.mods[p]) plan = { ...plan, mods: { ...plan.mods, [p]: { ...plan.mods[p], on: true } } };
   }
   if (window.location.search || window.location.hash) window.history.replaceState(null, '', window.location.pathname);
@@ -63,7 +63,7 @@ export default function RoiPage() {
     <main className={'roi-page mode-' + view.kind}>
       <header className="roi-top">
         <a className="brand" href="./index.html"><img src="./brand/contiinex-logo.png" alt="Contiinex" width="200" height="40" /></a>
-        <a className="back-link" href="./index.html"><ArrowLeft size={16} /> Presentation</a>
+        <nav className="tabs" aria-label="Pages"><a href="./index.html"><span className="long">Presentation</span><span className="short">Deck</span></a><a className="active" href="./pricing.html" aria-current="page"><span className="long">ROI calculator</span><span className="short">ROI</span></a></nav>
       </header>
       {view.kind === 'dashboard'
         ? <Dashboard plan={plan} setPlan={setPlan} openIntake={openIntake} />
@@ -80,19 +80,37 @@ export default function RoiPage() {
 }
 
 // ---- Dashboard ---------------------------------------------------------------------
+const GROUP_BLURB: Record<string, string> = {
+  'Patient Access': 'Scheduling, eligibility, prior authorization and referrals, cleared before the visit.',
+  'Revenue Operations': 'Claims, status inquiry, denial work and credentialing, worked without the queue.',
+  'Revenue Intelligence': 'Coding, denial analytics, zero-balance audit and patient collection.',
+};
+const PLAN_KEYS = ['cost', 'hpy', 'price', 'margin', 'impl', 'golive', 'ramp'];
+
 function Dashboard({ plan, setPlan, openIntake }: { plan: Plan; setPlan: (f: (p: Plan) => Plan) => void; openIntake: (set: string, key?: string) => void }) {
   const p = portfolio(plan);
   const [copied, setCopied] = useState(false);
   const [detailId, setDetailId] = useState<string>(SOLUTIONS[1].id);
+  const base = defaultPlan();
+  const tailored = (id: string) => isTailored(plan, SOLUTIONS.find(s => s.id === id)!);
+  const isDefault = !plan.hospital.trim() && !plan.licenseSet && PLAN_KEYS.every(k => plan.g[k] === base.g[k]) && SOLUTIONS.every(s => plan.mods[s.id].on && !tailored(s.id));
+  const [detailsOpen, setDetailsOpen] = useState(!isDefault);
+  const detailRef = useRef<HTMLElement>(null);
   const maxValue = Math.max(...p.modules.map(m => m.value), 1);
   const nOn = p.on.length;
+  const presets = GLOBAL_FIELDS.npr.presets ?? [];
+  const sized = plan.g.npr !== PROFILE_NPR;
   const who = plan.hospital.trim() || 'a ' + F.moneyCompact(plan.g.npr) + ' hospital';
   const bps = Math.round((p.m1 - p.m0) * 1e4);
   const be = p.breakeven === null ? 'No break-even within 3 years' : p.breakeven === 0 ? 'Positive from the start' : `Break-even in month ${p.breakeven}`;
-  const tailored = (id: string) => MODULE_KEYS.some(k => plan.mods[id].inp[k] !== moduleDefaults(SOLUTIONS.find(s => s.id === id)!)[k]);
-  const isDefault = JSON.stringify(plan) === JSON.stringify({ ...defaultPlan(), mods: plan.mods }) && SOLUTIONS.every(s => !tailored(s.id));
+  const payback = p.payback > 0 && p.payback < 1 ? 'under a month' : p.payback > 0 ? F.oneDp.format(p.payback) + ' months' : 'n/a';
   const toggle = (id: string) => setPlan(q => ({ ...q, mods: { ...q.mods, [id]: { ...q.mods[id], on: !q.mods[id].on } } }));
   const setGroup = (g: string, on: boolean) => setPlan(q => ({ ...q, mods: Object.fromEntries(Object.entries(q.mods).map(([id, m]) => [id, SOLUTIONS.find(s => s.id === id)!.group === g ? { ...m, on } : m])) }));
+  const size = (npr: number) => setPlan(q => sizePlan(q, npr));
+  const showDetail = (id?: string) => {
+    setDetailsOpen(true);
+    window.setTimeout(() => (id ? document.getElementById('mod-' + id) : detailRef.current)?.scrollIntoView({ block: id ? 'center' : 'start', behavior: 'smooth' }), 60);
+  };
 
   const copyLink = () => {
     const url = window.location.href.split(/[?#]/)[0] + '#' + planToHash(plan);
@@ -100,6 +118,13 @@ function Dashboard({ plan, setPlan, openIntake }: { plan: Plan; setPlan: (f: (p:
     if (navigator.clipboard?.writeText) navigator.clipboard.writeText(url).then(done, () => window.prompt('Copy this link:', url));
     else window.prompt('Copy this link:', url);
   };
+
+  const groups = GROUPS.map(g => {
+    const mods = p.modules.filter(m => m.sol.group === g), on = mods.filter(m => m.on);
+    return { g, n: on.length, total: mods.length, value: on.reduce((t, m) => t + m.value, 0), cap: on.reduce((t, m) => t + m.cap, 0) };
+  });
+  const maxGroup = Math.max(...groups.map(x => x.value), 1);
+  const savedPos = Math.max(0, p.saved), splitDen = Math.max(1, p.cap + savedPos);
 
   const detailMod = p.modules.find(m => m.sol.id === detailId)!;
   const detailScale = DENIAL_POOL_IDS.includes(detailId) && detailMod.on ? p.overlap.scale : 1;
@@ -120,33 +145,33 @@ function Dashboard({ plan, setPlan, openIntake }: { plan: Plan; setPlan: (f: (p:
   return (
     <div className="dash roi-exec">
       <section className="dash-hero">
-        <div>
-          <p className="roi-eyebrow">ROI calculator · {nOn} of {SOLUTIONS.length} modules · {isDefault ? 'typical values' : 'your values'}</p>
-          <h1>Contiinex adds <em>{F.moneyCompact(p.total)}</em> to EBITDA a year for {who}.</h1>
-          <p className="dash-sub">
-            {isDefault
-              ? 'These are typical starting values for every module. Switch modules on or off, fine-tune any of them, or tailor the hospital-wide figures.'
-              : 'Switch modules on or off, fine-tune any of them, or change the hospital-wide figures.'}
-          </p>
-        </div>
-        <div className="dash-actions">
-          <button type="button" className="roi-btn primary" onClick={() => openIntake('hospital')}><SlidersHorizontal size={16} /> Tailor to your hospital</button>
-          <button type="button" className="roi-btn ghost sm" onClick={copyLink}>{copied ? 'Link copied' : 'Copy link'}</button>
-          <button type="button" className="roi-btn ghost sm" onClick={() => window.print()}>Save PDF</button>
-          {!isDefault && <button type="button" className="roi-btn ghost sm" onClick={() => setPlan(() => defaultPlan())}>Reset to typical values</button>}
+        <p className="roi-eyebrow">{isDefault ? (sized ? 'Typical values, sized to ' + F.moneyCompact(plan.g.npr) + ' of net patient revenue' : 'Typical values for a ' + F.moneyCompact(plan.g.npr) + ' hospital') : 'Your values · ' + nOn + ' of ' + SOLUTIONS.length + ' modules'}</p>
+        <h1>Contiinex adds <em><Count value={p.total} f="compact" /></em> to EBITDA a year for {who}.</h1>
+        <p className="dash-sub">
+          {isDefault
+            ? 'Twelve revenue-cycle processes, run by agents inside your private cloud and priced per transaction below what they cost you by hand. Pick your size to see the number for a hospital like yours.'
+            : 'The figures below reflect the values you entered. Every one of them can still be changed.'}
+        </p>
+        <div className="size-row" role="group" aria-label="Net patient revenue">
+          <span className="size-label">Net patient revenue</span>
+          <div className="size-chips">
+            {presets.map(v => <button key={v} type="button" className={'chip' + (plan.g.npr === v ? ' on' : '')} aria-pressed={plan.g.npr === v} onClick={() => size(v)}>{F.moneyShort(v, 0)}</button>)}
+            {!presets.includes(plan.g.npr) && <span className="chip on">{F.moneyCompact(plan.g.npr)}</span>}
+            <button type="button" className="chip other" onClick={() => openIntake('hospital', 'npr')}>Other…</button>
+          </div>
         </div>
       </section>
 
-      <section className="dash-kpis">
+      <section className="kpi-strip">
         <div className="exec-card hero-k">
           <p className="k">EBITDA added a year</p>
           <p className="big"><Count value={p.total} f="compact" /></p>
-          <p className="s">{F.moneyCompact(p.cap)} revenue captured · {p.saved < 0 ? '−' : ''}{F.moneyCompact(p.saved)} cost saved</p>
+          <p className="s">{F.moneyCompact(p.cap)} revenue captured · {p.saved < 0 ? '−' : ''}{F.moneyCompact(p.saved)} operating cost saved</p>
         </div>
         <div className="exec-card">
           <p className="k">Return on spend</p>
           <p className="big"><Count value={p.roi} f="x" /></p>
-          <p className="s">{F.moneyCompact(p.spend)} a year to Contiinex · pays back in {p.payback > 0 && p.payback < 1 ? 'under a month' : p.payback > 0 ? F.oneDp.format(p.payback) + ' months' : 'n/a'}</p>
+          <p className="s">{F.moneyCompact(p.spend)} a year to Contiinex · pays back in {payback}</p>
         </div>
         <div className="exec-card">
           <p className="k">3-year cumulative net</p>
@@ -155,95 +180,131 @@ function Dashboard({ plan, setPlan, openIntake }: { plan: Plan; setPlan: (f: (p:
         </div>
         <div className="exec-card">
           <p className="k">EBITDA margin</p>
-          <p className="big">{F.pct(p.m1 * 100, 1)}</p>
-          <p className="s">from {F.pct(p.m0 * 100, 1)} · {F.signed(bps)} bps</p>
-        </div>
-        <div className="exec-card">
-          <p className="k">Staff hours freed</p>
-          <p className="big"><Count value={p.hours} f="hours" /></p>
-          <p className="s">≈ {F.int(p.fte)} full-time people</p>
+          <p className="big">{F.pct(p.m0 * 100, 1)} <span className="to">→</span> {F.pct(p.m1 * 100, 1)}</p>
+          <p className="s">{F.signed(bps)} bps · {F.int(p.hours)} staff hours freed ≈ {F.int(p.fte)} people</p>
         </div>
       </section>
 
-      <div className="dash-main">
-        <aside className="exec-card modules-card" aria-label="Modules">
-          <div className="card-head"><h3>Modules</h3><span className="muted">{nOn} selected</span></div>
-          <p className="sub">Value per module a year. Untick to leave a process out.</p>
-          {GROUPS.map(g => {
-            const mods = p.modules.filter(m => m.sol.group === g);
-            const allOn = mods.every(m => m.on);
-            return (
-              <div className="mod-group" key={g}>
-                <div className="mod-group-head">
-                  <span>{g}</span>
-                  <button type="button" className="linkish" onClick={() => setGroup(g, !allOn)}>{allOn ? 'None' : 'All'}</button>
-                </div>
-                {mods.map(m => (
-                  <div className={'mod-row' + (m.on ? '' : ' off')} key={m.sol.id} id={'mod-' + m.sol.id}>
-                    <label className="mod-check">
-                      <input type="checkbox" checked={m.on} onChange={() => toggle(m.sol.id)} />
-                      <span className="box" aria-hidden="true"><Check size={13} /></span>
-                      <span className="mod-name">{m.sol.name}{tailored(m.sol.id) && <em className="chip-tailored">tailored</em>}</span>
-                    </label>
-                    <span className="mod-val">{F.moneyCompact(m.value)}</span>
-                    <span className="mod-bar"><i style={{ width: (Math.max(0, m.value) / maxValue) * 100 + '%' }} /></span>
-                    <button type="button" className="linkish fine" onClick={() => openIntake(m.sol.id)} aria-label={'Fine-tune ' + m.sol.name}>Fine-tune</button>
-                  </div>
-                ))}
-              </div>
-            );
-          })}
-          {p.overlap.scale < 1 && (
-            <p className="overlap-note">
-              The selected denial modules claim {F.oneDp.format(p.overlap.claimedPct)}% of NPR in denials against a {F.oneDp.format(p.overlap.poolPct)}% denial pool, so their shares are scaled to {Math.round(p.overlap.scale * 100)}% to avoid counting the same denial twice.
-            </p>
-          )}
-        </aside>
-
-        <div className="dash-charts">
-          <div className="exec-card">
-            <div className="card-head"><h3>Cumulative net benefit</h3><span className="muted">{be}</span></div>
-            <p className="sub">Value captured minus everything paid to Contiinex, month by month. Go-live in month {plan.g.golive}, full run-rate {plan.g.ramp} months later.</p>
-            <NetBenefitChart cumulative={p.cumulative} breakeven={p.breakeven} golive={Math.round(plan.g.golive)} />
-          </div>
-          <div className="exec-card">
-            <div className="card-head"><h3>Where the money goes</h3><span className="muted">Annual, at full run-rate</span></div>
-            <p className="sub">Today’s manual spend and revenue at risk on the selected processes, and where each dollar ends up.</p>
-            <Sankey p={p} />
-          </div>
-        </div>
-      </div>
-
-      <section className="exec-grid bottom">
+      <section className="value-story">
         <div className="exec-card">
-          <h3>Hospital-wide assumptions</h3>
-          <p className="sub">Shared by every module. Select one to change it.</p>
-          <ul className="answers">
-            {assumptions.map(a => (
-              <li key={a.key}><button type="button" onClick={() => openIntake('hospital', a.key)}><span>{a.label}</span><b>{a.value}</b></button></li>
-            ))}
+          <div className="card-head"><h3>Where the value comes from</h3><span className="muted">{nOn} of {SOLUTIONS.length} modules</span></div>
+          <p className="sub">Revenue captured and operating cost saved, by area of the revenue cycle.</p>
+          <div className="split" role="img" aria-label={`Revenue captured ${F.moneyCompact(p.cap)}, operating cost saved ${F.moneyCompact(savedPos)}`}>
+            <span className="seg rev" style={{ width: (p.cap / splitDen) * 100 + '%' }} />
+            <span className="seg cost" style={{ width: (savedPos / splitDen) * 100 + '%' }} />
+          </div>
+          <ul className="exec-legend">
+            <li><i className="dot rev" /><span>Revenue captured</span><b>{F.moneyCompact(p.cap)}</b><em>{Math.round((p.cap / splitDen) * 100)}%</em></li>
+            <li><i className="dot cost" /><span>Operating cost saved, after everything paid to Contiinex</span><b>{(p.saved < 0 ? '−' : '') + F.moneyCompact(p.saved)}</b><em>{Math.round((savedPos / splitDen) * 100)}%</em></li>
           </ul>
-        </div>
-        <div className="exec-card breakdown">
-          <div className="card-head">
-            <h3>Detailed calculation</h3>
-            <label className="roi-pick"><span className="sr-only">Module</span>
-              <select value={detailId} onChange={e => setDetailId(e.target.value)}>
-                {GROUPS.map(g => <optgroup key={g} label={g}>{SOLUTIONS.filter(s => s.group === g).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</optgroup>)}
-              </select><ChevronDown size={15} />
-            </label>
+          <div className="group-rows">
+            {groups.map(x => (
+              <button type="button" className="group-row" key={x.g} onClick={() => showDetail()} aria-label={x.g + ': ' + F.moneyCompact(x.value) + ' a year. See the modules.'}>
+                <span className="group-top"><span className="group-name">{x.g}<small>{x.n === x.total ? x.total + ' modules' : x.n + ' of ' + x.total + ' modules'}</small></span><b>{F.moneyCompact(x.value)}</b></span>
+                <span className="group-bar"><i style={{ width: (Math.max(0, x.value) / maxGroup) * 100 + '%' }} /></span>
+                <span className="group-blurb">{GROUP_BLURB[x.g]}</span>
+              </button>
+            ))}
           </div>
-          <p className="sub">Every step for one module{detailScale < 1 ? `, with its denial share scaled to ${Math.round(detailScale * 100)}% for overlap` : ''}{detailMod.on ? '' : ' (not selected)'}.</p>
-          {detail.breakdown.map((sec, i) => (
-            <details key={sec.title} open={i === 4}>
-              <summary>{sec.title}</summary>
-              <table><tbody>{sec.rows.map(row => <tr key={row.label} className={row.cls}><th scope="row">{row.label}</th><td>{row.value}</td></tr>)}</tbody></table>
-            </details>
-          ))}
+        </div>
+        <div className="exec-card">
+          <div className="card-head"><h3>Where the money goes</h3><span className="muted">Annual, at full run-rate</span></div>
+          <p className="sub">Today’s manual spend and revenue at risk on the selected processes, and where each dollar ends up.</p>
+          <Sankey p={p} />
         </div>
       </section>
+
+      <section className="cta-row">
+        <div className="cta-copy">
+          <h3>{isDefault ? 'Make it yours.' : 'Keep refining.'}</h3>
+          <p>{isDefault ? 'Eleven questions replace the typical values with your own. Each module can be switched off or fine-tuned on its own.' : 'Switch modules on or off, fine-tune any of them, or change the hospital-wide figures.'}</p>
+        </div>
+        <div className="dash-actions">
+          <button type="button" className="roi-btn primary" onClick={() => openIntake('hospital')}><SlidersHorizontal size={16} /> Customize with your numbers</button>
+          <button type="button" className="roi-btn ghost" onClick={() => (detailsOpen ? setDetailsOpen(false) : showDetail())} aria-expanded={detailsOpen}>{detailsOpen ? 'Hide the full model' : 'See the full model'} <ChevronDown size={16} className={detailsOpen ? 'up' : ''} /></button>
+          <button type="button" className="roi-btn ghost sm" onClick={copyLink}>{copied ? 'Link copied' : 'Copy link'}</button>
+          <button type="button" className="roi-btn ghost sm" onClick={() => window.print()}>Save PDF</button>
+          {!isDefault && <button type="button" className="roi-btn ghost sm" onClick={() => setPlan(() => defaultPlan())}>Reset to typical values</button>}
+        </div>
+      </section>
+
+      {detailsOpen && (
+        <section className="dash-detail" ref={detailRef} aria-label="The full model">
+          <div className="detail-head"><p className="roi-eyebrow">The full model</p><p className="sub">Every module, the timeline, the hospital-wide assumptions and each calculation step.</p></div>
+          <div className="dash-main">
+            <aside className="exec-card modules-card" aria-label="Modules">
+              <div className="card-head"><h3>Modules</h3><span className="muted">{nOn} selected</span></div>
+              <p className="sub">Value per module a year. Untick to leave a process out.</p>
+              {GROUPS.map(g => {
+                const mods = p.modules.filter(m => m.sol.group === g);
+                const allOn = mods.every(m => m.on);
+                return (
+                  <div className="mod-group" key={g}>
+                    <div className="mod-group-head">
+                      <span>{g}</span>
+                      <button type="button" className="linkish" onClick={() => setGroup(g, !allOn)}>{allOn ? 'None' : 'All'}</button>
+                    </div>
+                    {mods.map(m => (
+                      <div className={'mod-row' + (m.on ? '' : ' off')} key={m.sol.id} id={'mod-' + m.sol.id}>
+                        <label className="mod-check">
+                          <input type="checkbox" checked={m.on} onChange={() => toggle(m.sol.id)} />
+                          <span className="box" aria-hidden="true"><Check size={13} /></span>
+                          <span className="mod-name">{m.sol.name}{tailored(m.sol.id) && <em className="chip-tailored">tailored</em>}</span>
+                        </label>
+                        <span className="mod-val">{F.moneyCompact(m.value)}</span>
+                        <span className="mod-bar"><i style={{ width: (Math.max(0, m.value) / maxValue) * 100 + '%' }} /></span>
+                        <button type="button" className="linkish fine" onClick={() => openIntake(m.sol.id)} aria-label={'Fine-tune ' + m.sol.name}>Fine-tune</button>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+              {p.overlap.scale < 1 && (
+                <p className="overlap-note">
+                  The selected denial modules claim {F.oneDp.format(p.overlap.claimedPct)}% of NPR in denials against a {F.oneDp.format(p.overlap.poolPct)}% denial pool, so their shares are scaled to {Math.round(p.overlap.scale * 100)}% to avoid counting the same denial twice.
+                </p>
+              )}
+            </aside>
+
+            <div className="dash-charts">
+              <div className="exec-card">
+                <div className="card-head"><h3>Cumulative net benefit</h3><span className="muted">{be}</span></div>
+                <p className="sub">Value captured minus everything paid to Contiinex, month by month. Go-live in month {plan.g.golive}, full run-rate {plan.g.ramp} months later.</p>
+                <NetBenefitChart cumulative={p.cumulative} breakeven={p.breakeven} golive={Math.round(plan.g.golive)} />
+              </div>
+              <div className="exec-card">
+                <h3>Hospital-wide assumptions</h3>
+                <p className="sub">Shared by every module. Select one to change it.</p>
+                <ul className="answers">
+                  {assumptions.map(a => (
+                    <li key={a.key}><button type="button" onClick={() => openIntake('hospital', a.key)}><span>{a.label}</span><b>{a.value}</b></button></li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          <section className="exec-card breakdown">
+            <div className="card-head">
+              <h3>Detailed calculation</h3>
+              <label className="roi-pick"><span className="sr-only">Module</span>
+                <select value={detailId} onChange={e => setDetailId(e.target.value)}>
+                  {GROUPS.map(g => <optgroup key={g} label={g}>{SOLUTIONS.filter(s => s.group === g).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</optgroup>)}
+                </select><ChevronDown size={15} />
+              </label>
+            </div>
+            <p className="sub">Every step for one module{detailScale < 1 ? `, with its denial share scaled to ${Math.round(detailScale * 100)}% for overlap` : ''}{detailMod.on ? '' : ' (not selected)'}.</p>
+            {detail.breakdown.map((sec, i) => (
+              <details key={sec.title} open={i === 4}>
+                <summary>{sec.title}</summary>
+                <table><tbody>{sec.rows.map(row => <tr key={row.label} className={row.cls}><th scope="row">{row.label}</th><td>{row.value}</td></tr>)}</tbody></table>
+              </details>
+            ))}
+          </section>
+        </section>
+      )}
       <p className="fine">
-        Illustrative estimate, not a quote. Module values are each process’s cost saved plus revenue captured, before the platform license; the license is charged once across all modules. Per-process math follows the calculator at contiinex.com/resources/roi-calculator. Contiinex reserves the right to adjust final pricing.
+        Illustrative estimate, not a quote. Typical values describe a $500M hospital; sized to another revenue, each module’s volume and staffing scale in proportion. Module values are each process’s cost saved plus revenue captured, before the platform license; the license is charged once across all modules. Per-process math follows the calculator at contiinex.com/resources/roi-calculator. Contiinex reserves the right to adjust final pricing.
       </p>
     </div>
   );

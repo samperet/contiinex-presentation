@@ -9,7 +9,7 @@
  * - A timeline: annual platform license, one-time implementation, months to
  *   go-live and ramp to full run-rate, for the cumulative net benefit.
  */
-import { compute, defaults, GLOBAL_FIELDS, SOLUTIONS, solutionDefaults, type Field, type Inputs, type Solution } from './model.ts';
+import { compute, defaults, GLOBAL_FIELDS, SOLUTIONS, solutionDefaults, volumeField, type Field, type Inputs, type Solution } from './model.ts';
 
 export const MODULE_KEYS = ['agents', 'mins', 'units', 'pool', 'share', 'capture', 'rework', 'auto'];
 // Modules whose revenue pool is denied revenue and so can overlap.
@@ -42,6 +42,33 @@ export function defaultPlan(): Plan {
 
 export function moduleDefaults(sol: Solution): Inputs {
   return { agents: GLOBAL_FIELDS.agents.def, ...solutionDefaults(sol) };
+}
+
+// The typical profile is a $500M hospital. Sized to another revenue, an untailored
+// module scales its annual volume and the staff on it in proportion; rates, minutes
+// and percentages stay the same. Tailored modules keep their own values.
+export const PROFILE_NPR = GLOBAL_FIELDS.npr.def;
+export function sizedDefaults(sol: Solution, npr: number): Inputs {
+  const d = moduleDefaults(sol);
+  const k = npr / PROFILE_NPR;
+  if (k === 1) return d;
+  const vf = volumeField(sol), step = vf.step || 1;
+  const units = Math.min(vf.max, Math.max(vf.min, Math.round((d.units * k) / step) * step));
+  const a = GLOBAL_FIELDS.agents;
+  const agents = Math.min(a.max, Math.max(a.min, Math.round(d.agents * k)));
+  return { ...d, units, agents };
+}
+export const isTailored = (p: Plan, sol: Solution) => {
+  const d = sizedDefaults(sol, p.g.npr);
+  return MODULE_KEYS.some(k => p.mods[sol.id].inp[k] !== d[k]);
+};
+export function sizePlan(p: Plan, npr: number): Plan {
+  const mods: Plan['mods'] = {};
+  SOLUTIONS.forEach(s => {
+    const m = p.mods[s.id];
+    mods[s.id] = isTailored(p, s) ? m : { ...m, inp: sizedDefaults(s, npr) };
+  });
+  return { ...p, g: { ...p.g, npr }, mods };
 }
 
 export const license = (p: Plan) => (p.licenseSet ? p.g.license ?? 0 : Math.round(p.g.npr * LICENSE_RATE));

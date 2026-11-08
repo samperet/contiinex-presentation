@@ -4,12 +4,12 @@ Fourteen-slide, hospital-facing presentation that ALPS advisors bring to hospita
 
 ## GitHub Pages
 
-The `docs` folder contains the complete static website: `index.html` is the deck and `pricing.html` is the ROI calculator: it opens on typical values for all twelve revenue-cycle modules, each of which can be switched on or off or fine-tuned one question per screen, with the EBITDA added, return, a cumulative net benefit chart over three years, a Sankey of where the money goes, every calculation step, a shareable link and Save PDF. In repository Settings → Pages, select Deploy from a branch, choose `main`, and select `/docs`. All asset paths are relative and support a project repository URL.
+The `docs` folder contains the complete static website: `index.html` is the deck and `pricing.html` is the ROI calculator as an executive report: one estimated EBITDA figure at full run-rate, three lines that add up to it, short timing, scale and downside lines, then the cumulative net benefit chart, where the figure comes from and what it rests on. "Edit inputs" opens the advisor controls (modules, hospital-wide values, one-question-per-screen fine-tuning). Save PDF prints a 2-page report; Copy link shares the exact estimate.
 
 ## Edit and rebuild
 
 Run `npm ci` then `npm run build:pages`. Replace `docs` with the resulting `dist-pages` folder before committing.
 
-The ROI model is in `app/roi/model.ts`, ported unchanged from the calculator at contiinex.com/resources/roi-calculator; `npm test` checks it against that calculator's figures. `app/roi/portfolio.ts` combines the modules, scales overlapping denial shares and builds the 36-month timeline. Per-process defaults and labels are in `BASE_SOLUTIONS` and `GLOBAL_FIELDS`.
+The ROI model is in `app/roi/model.ts`, ported unchanged from the calculator at contiinex.com/resources/roi-calculator; `npm test` checks it against that calculator's figures. `app/roi/portfolio.ts` combines the modules (nine by default; Scheduling, Referral and Credentialing off), counts the shared denial pool once in sequence, sizes typical volumes and staff to the hospital's revenue and builds the 36-month timeline. `app/roi/format.ts` holds the one money format used by the report, the PDF and the deck slide. Per-process defaults and labels are in `BASE_SOLUTIONS` and `GLOBAL_FIELDS`.
 
 The site requires no server, Sites hosting, authentication service or external font requests.

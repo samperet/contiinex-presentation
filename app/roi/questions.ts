@@ -1,4 +1,4 @@
-import { fieldDefs, fmt as F, VENDOR, type Field, type Inputs, type Solution } from './model';
+import { fieldDefs, fmt as F, VENDOR, type Field, type Inputs, type Solution } from './model.ts';
 
 type Calc = Record<string, number>;
 export type Question =
@@ -66,5 +66,6 @@ export function validate(key: string, f: Field, v: number): string {
   if (POSITIVE.has(key) && v <= 0) return 'Please enter a number greater than 0.';
   if (v < 0) return 'Please enter a positive number.';
   if (f.unit === '%' && v > 100) return 'Please enter a percentage up to 100.';
+  if (f.unit !== '%' && f.max > 0 && v > f.max * 10) return 'That looks too high. ' + rangeText(f) + '.';
   return '';
 }

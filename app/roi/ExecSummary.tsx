@@ -13,7 +13,7 @@ export default function ExecSummary({ solId, npr }: { solId: string; npr: number
     { key: 'staff', sign: '+', value: p.hoursValue },
     { key: 'paid', sign: '−', value: p.spend },
   ], p.total);
-  const rev = p.capNew > 0 ? 'new patient volume, before cost of care' : sol.denial ? 'revenue protected from denials' : 'revenue recovered';
+  const rev = p.capNew > 0 ? 'new patient volume, before cost of care' : 'revenue recovered';
   return (
     <article className="roi-slide-sum">
       <p className="slide-eyebrow">One-module example · {sol.name}</p>
@@ -23,7 +23,7 @@ export default function ExecSummary({ solId, npr }: { solId: string; npr: number
         <li><b>+{shown.parts[0]}</b>{rev}</li>
         <li><b>+{shown.parts[1]}</b>staff cost removed</li>
         <li><b>−{shown.parts[2]}</b>paid to {VENDOR}</li>
-        <li><b>{p.breakeven === null ? 'Not within 3 yrs' : p.breakeven === 0 ? 'From the start' : 'Month ' + p.breakeven}</b>break-even</li>
+        <li><b>{p.breakeven === null ? 'Not within 3 yrs' : p.breakeven === 0 ? 'From the start' : 'Month ' + p.breakeven}</b>break-even, before implementation</li>
       </ul>
     </article>
   );

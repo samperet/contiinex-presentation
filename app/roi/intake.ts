@@ -1,6 +1,6 @@
 /* Questions for the step-by-step intake: hospital-wide answers, or one module's fine-tuning. */
 import { compute, fieldDefs, fmt as F, GLOBAL_FIELDS, getSolution, VENDOR, type Field, type Solution } from './model.ts';
-import { license, moduleInputs, moduleValue, PLAN_FIELDS, portfolio, type Plan } from './portfolio.ts';
+import { DENIAL_POOL_IDS, license, moduleInputs, moduleValue, PLAN_FIELDS, portfolio, type Plan } from './portfolio.ts';
 import { fmtExec } from './format.ts';
 import { questions } from './questions.ts';
 
@@ -26,10 +26,10 @@ export function hospitalQuestions(): IQ[] {
     ({ key, type: 'number', section, title, hint, field, get: p => (key === 'license' ? license(p) : p.g[key]), set: setGlobal(key), insight });
   const t = (p: Plan) => portfolio(p);
   return [
-    { key: 'modules', type: 'modules', section: 'Scope', title: 'Which processes should the model include?', hint: 'The recommended scope is selected. Scheduling, Referral and Credentialing bring new patient volume and are left out by default. Press a letter to toggle, Enter to continue.' },
-    { key: 'hospital', type: 'text', section: 'Your organization', title: 'What is the name of your hospital or health system?', hint: 'Optional. It appears on the summary.', placeholder: 'e.g. Riverside Health' },
+    { key: 'modules', type: 'modules', section: 'Scope', title: 'Which processes should the model include?', hint: 'The recommended scope is selected. Scheduling, Referral and Credentialing bring new patient volume and are left out by default.' },
+    { key: 'hospital', type: 'text', section: 'Your organization', title: 'What is the name of your hospital or health system?', hint: 'Optional. It appears on the report.', placeholder: 'e.g. Riverside Health' },
     g('npr', 'Your organization', 'What is your annual net patient revenue?', 'NPR, in millions of dollars', GLOBAL_FIELDS.npr, p => fmtExec(p.g.npr) + ' in net patient revenue a year'),
-    g('margin', 'Financials', 'What is your EBITDA margin today?', 'Used for the P&L view', GLOBAL_FIELDS.margin, p => 'EBITDA today: about ' + fmtExec(t(p).e0)),
+    g('margin', 'Financials', 'What is your EBITDA margin today?', 'Shown with the assumptions. It does not change the estimate.', GLOBAL_FIELDS.margin, p => 'EBITDA today: about ' + fmtExec((p.g.npr * p.g.margin) / 100)),
     g('cost', 'Your RCM team', 'What does one RCM employee cost per year?', 'Fully loaded: salary, benefits and overhead', GLOBAL_FIELDS.cost, p => F.cents(p.g.cost / p.g.hpy) + ' per hour of RCM work'),
     g('hpy', 'Your RCM team', 'How many hours does each employee work in a year?', '8 hrs × 22 days × 12 months = 2,112', GLOBAL_FIELDS.hpy, p => F.cents(p.g.cost / p.g.hpy) + ' per hour · ' + fmtExec(t(p).staff0) + ' a year of staff time on the selected processes'),
     g('price', 'With ' + VENDOR, 'What will ' + VENDOR + ' cost per transaction?', "As a % of today's manual cost per transaction", GLOBAL_FIELDS.price, p => fmtExec(t(p).consumption) + ' a year in usage across the selected processes'),
@@ -56,11 +56,14 @@ export function moduleQuestions(id: string): IQ[] {
     .map(key => base.find(q => q.key === key))
     .filter((q): q is Extract<ReturnType<typeof questions>[number], { type: 'number' }> => !!q && q.type === 'number')
     .map(q => ({
-      key: q.key, type: 'number' as const, section: sol.name + ' · ' + q.section, title: q.title, hint: q.key === 'agents' ? 'Staff on this process today' : q.hint, field: defs[q.key],
+      key: q.key, type: 'number' as const, section: sol.name + ' · ' + q.section, title: q.title, hint: q.key === 'agents' ? 'Staff on this process today' : q.key === 'pool' && DENIAL_POOL_IDS.includes(sol.id) ? q.hint + ' · shared by all denial modules' : q.hint, field: defs[q.key],
       get: (p: Plan) => moduleValue(p, sol.id, q.key),
       set: (p: Plan, v: number): Plan => {
-        const m = p.mods[sol.id];
-        return { ...p, mods: { ...p.mods, [sol.id]: { ...m, inp: { ...m.inp, [q.key]: v }, set: m.set.includes(q.key) ? m.set : [...m.set, q.key] } } };
+        // The denial rate is one hospital-wide figure: setting it on any denial module sets it for all of them.
+        const ids = q.key === 'pool' && DENIAL_POOL_IDS.includes(sol.id) ? DENIAL_POOL_IDS : [sol.id];
+        const mods = { ...p.mods };
+        ids.forEach(id => { const m = mods[id]; mods[id] = { ...m, inp: { ...m.inp, [q.key]: v }, set: m.set.includes(q.key) ? m.set : [...m.set, q.key] }; });
+        return { ...p, mods };
       },
       insight: (p: Plan) => q.insight(compute(moduleInputs(p, sol), sol)),
       warn: q.warn ? (p: Plan) => q.warn!(compute(moduleInputs(p, sol), sol)) : undefined,

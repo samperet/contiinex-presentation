@@ -110,7 +110,8 @@ function denialScales(p: Plan, on: (id: string) => boolean) {
   };
   // Prevention: distinct causes of denial, each a share of the pool; scaled down only if they add up to more than all denials.
   const prev = PREVENTION_IDS.filter(on);
-  const claimedShare = prev.reduce((t, id) => t + p.mods[id].inp.share, 0);
+  // Scaled over all four prevention causes, selected or not, so switching one off cannot raise the others.
+  const claimedShare = PREVENTION_IDS.reduce((t, id) => t + p.mods[id].inp.share, 0);
   const prevScale = claimedShare > 100 ? 100 / claimedShare : 1;
   let remaining = D;
   let prevented = 0;
@@ -239,6 +240,7 @@ export function typicalCount(p: Plan): { typical: number; total: number } {
   SOLUTIONS.filter(s => p.mods[s.id].on).forEach(s => {
     MODULE_KEYS.forEach(k => {
       if (k === 'rework' && !s.rework) return;
+      if (k === 'agents') return; // staff count feeds intake hints only, not a report figure
       total++;
       if (p.mods[s.id].set.includes(k)) entered++;
     });
@@ -276,6 +278,14 @@ export function sanitizePlan(raw: unknown): Plan {
       const dflt = moduleDefaults(s);
       st.set = set ?? MODULE_KEYS.filter(k => st.inp[k] !== undefined && st.inp[k] !== dflt[k]);
     });
+    // One denial rate for the hospital: the first entered one, else the typical value.
+    const src = DENIAL_POOL_IDS.find(id => p.mods[id].set.includes('pool'));
+    if (src) {
+      const v = p.mods[src].inp.pool;
+      DENIAL_POOL_IDS.forEach(id => { const st = p.mods[id]; st.inp.pool = v; if (!st.set.includes('pool')) st.set = [...st.set, 'pool']; });
+    } else {
+      DENIAL_POOL_IDS.forEach(id => { p.mods[id].inp.pool = moduleDefaults(SOLUTIONS.find(s => s.id === id)!).pool; });
+    }
   }
   return p;
 }

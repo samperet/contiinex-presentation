@@ -5,21 +5,27 @@ import { fmt as F, GROUPS, SOLUTIONS, summary, VENDOR, type Field } from './mode
 import NetBenefitChart from './NetBenefitChart';
 import { hospitalQuestions, moduleQuestions, type IQ } from './intake';
 import {
-  clearSaved, defaultPlan, DENIAL_POOL_IDS, license, loadSaved, moduleInputs, moduleValue, MODULE_KEYS, NEW_VOLUME_IDS, planFromHash,
+  clearSaved, defaultPlan, DENIAL_POOL_IDS, license, SIZE_BASE_NPR, loadSaved, moduleInputs, moduleValue, MODULE_KEYS, NEW_VOLUME_IDS, planFromHash,
   planToHash, portfolio, sanitizePlan, savePlan, singleModulePlan, typicalCount, withRecommendedScope, type Plan, type Portfolio, type Saved,
 } from './portfolio';
 import { clamp, fieldText, parseField, prefix, rangeText, suffix, validate } from './questions';
 import { addUp, fmtExec, roundToTotal, today } from './format';
 
 const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+// Report wording for the model's detailed-calculation labels (model.ts stays byte-identical).
+const GLOSSARY: Record<string, string> = {
+  'Total (direct + prevented) cost saved': 'Staff cost removed, less usage',
+  'Total revenue added to NPR': 'Revenue recovered',
+  'Total $ P&L impact (revenue + savings)': 'Contribution a year (this module alone)',
+};
 type View = { kind: 'report' } | { kind: 'intake'; set: 'hospital' | string; step: number };
-type Start = { plan: Plan; resume: Saved | null };
+type Start = { plan: Plan; resume: Saved | null; fromLink: boolean };
 
 // The plan comes from the link only. Saved work is offered, never shown
 // automatically, so one hospital's name and figures never open in front of another.
 // ?p=&npr= come from the deck's Pricing slide; ?p=...&agents=...#results is the earlier single-process link.
 function start(): Start {
-  if (typeof window === 'undefined') return { plan: defaultPlan(), resume: null };
+  if (typeof window === 'undefined') return { plan: defaultPlan(), resume: null, fromLink: false };
   const saved = loadSaved();
   const q = new URLSearchParams(window.location.search);
   const p = q.get('p');
@@ -29,13 +35,13 @@ function start(): Start {
     const g: Record<string, string> = {}, inp: Record<string, string> = {};
     q.forEach((v, k) => { if (MODULE_KEYS.includes(k)) inp[k] = v; else g[k] = v; });
     g.license = g.fee ?? '0';
-    plan = sanitizePlan({ hospital: q.get('h') ?? '', g, licenseSet: true, mods: Object.fromEntries(SOLUTIONS.map(s => [s.id, s.id === p ? { on: true, inp } : { on: false }])) });
+    plan = sanitizePlan({ hospital: q.get('h') ?? '', g, licenseSet: true, mods: Object.fromEntries(SOLUTIONS.map(s => [s.id, s.id === p ? { on: true, inp, set: Object.keys(inp) } : { on: false }])) });
   } else if (!plan && p && SOLUTIONS.some(s => s.id === p)) {
     plan = singleModulePlan(p, isFinite(npr) && npr > 0 ? npr : undefined);
   }
-  if (window.location.search || window.location.hash) window.history.replaceState(null, '', window.location.pathname);
-  const offer = !plan && saved && (saved.plan.hospital.trim() || JSON.stringify(saved.plan) !== JSON.stringify(defaultPlan())) ? saved : null;
-  return { plan: plan ?? defaultPlan(), resume: offer };
+  window.history.replaceState(null, '', window.location.pathname + (plan ? '#' + planToHash(plan) : ''));
+  const offer = saved && (saved.plan.hospital.trim() || JSON.stringify(saved.plan) !== JSON.stringify(defaultPlan())) ? saved : null;
+  return { plan: plan ?? defaultPlan(), resume: offer, fromLink: !!plan };
 }
 
 export default function RoiPage() {
@@ -47,20 +53,33 @@ export default function RoiPage() {
   const [view, setView] = useState<View>({ kind: 'report' });
   const [copied, setCopied] = useState(false);
   const lastModule = useRef<string | null>(null);
-  const setPlan = (f: (p: Plan) => Plan) => { setPlanState(f); setDirty(true); setResume(null); };
+  const returnFocus = useRef<string | null>(null);
+  // A named save is never overwritten by a different plan until the advisor resumes, discards or starts a new hospital.
+  const protectedName = useRef(init.resume?.plan.hospital.trim() || '');
+  const setPlan = (f: (p: Plan) => Plan) => { setPlanState(f); setDirty(true); };
   const p = portfolio(plan);
   const who = plan.hospital.trim() || 'a ' + fmtExec(plan.g.npr) + ' hospital';
   const date = today();
 
   // Save only once this session has changed something, so opening the page never overwrites saved work.
-  useEffect(() => { if (dirty) savePlan(plan, date); }, [plan, dirty, date]);
+  useEffect(() => {
+    if (!dirty) return;
+    if (!protectedName.current || plan.hospital.trim() === protectedName.current) savePlan(plan, date);
+  }, [plan, dirty, date]);
+  // Keep what is on screen in the address bar, so a reload rebuilds it.
+  useEffect(() => {
+    if (init.fromLink || dirty) window.history.replaceState(null, '', window.location.pathname + '#' + planToHash(plan));
+  }, [plan, dirty, init.fromLink]);
   useEffect(() => { document.title = `Contiinex ROI estimate – ${plan.hospital.trim() || fmtExec(plan.g.npr) + ' hospital'} – ${date}`; }, [plan.hospital, plan.g.npr, date]);
   useEffect(() => {
     if (view.kind !== 'report') return;
     const id = lastModule.current;
     lastModule.current = null;
     if (id) document.getElementById('mod-' + id)?.scrollIntoView({ block: 'center' });
-    else window.scrollTo(0, 0);
+    else if (!returnFocus.current) window.scrollTo(0, 0);
+    const sel = returnFocus.current;
+    returnFocus.current = null;
+    if (sel) document.querySelector<HTMLElement>(sel)?.focus({ preventScroll: !!id });
   }, [view.kind]);
   useEffect(() => {
     const open = () => document.querySelectorAll('.report details').forEach(d => ((d as HTMLDetailsElement).open = true));
@@ -71,6 +90,7 @@ export default function RoiPage() {
   const openIntake = (set: 'hospital' | string, key?: string) => {
     const qs = set === 'hospital' ? hospitalQuestions() : moduleQuestions(set);
     if (set !== 'hospital') lastModule.current = set;
+    returnFocus.current = set === 'hospital' ? (key ? `[data-akey="${key}"]` : '#tailor-btn') : `#mod-${set} button.fine`;
     setView({ kind: 'intake', set, step: Math.max(0, key ? qs.findIndex(q => q.key === key) : 0) });
   };
   const copyLink = () => {
@@ -79,7 +99,10 @@ export default function RoiPage() {
     if (navigator.clipboard?.writeText) navigator.clipboard.writeText(url).then(done, () => window.prompt('Copy this link:', url));
     else window.prompt('Copy this link:', url);
   };
-  const newHospital = () => { clearSaved(); setPlanState(defaultPlan()); setDirty(false); setResume(null); setEditing(false); window.scrollTo(0, 0); };
+  const newHospital = () => {
+    clearSaved(); protectedName.current = ''; setPlanState(defaultPlan()); setDirty(false); setResume(null); setEditing(false);
+    window.history.replaceState(null, '', window.location.pathname); window.scrollTo(0, 0);
+  };
 
   if (view.kind === 'intake') {
     return (
@@ -107,9 +130,9 @@ export default function RoiPage() {
       </TopBar>
       {resume && (
         <div className="resume-line">
-          <span>Saved work: {resume.plan.hospital.trim() || 'an earlier estimate'}{resume.savedAt ? ` (saved ${resume.savedAt})` : ''}</span>
-          <button type="button" className="linkish" onClick={() => { setPlanState(resume.plan); setDirty(true); setResume(null); }}>Resume</button>
-          <button type="button" className="linkish muted" onClick={() => { clearSaved(); setResume(null); }}>Discard</button>
+          <span>Saved estimate{resume.savedAt ? ` from ${resume.savedAt}` : ''}</span>
+          <button type="button" className="linkish" onClick={() => { protectedName.current = ''; setPlanState(resume.plan); setDirty(true); setResume(null); }}>Resume</button>
+          <button type="button" className="linkish muted" onClick={() => { protectedName.current = ''; clearSaved(); setResume(null); }}>Discard</button>
         </div>
       )}
       <div className="report-layout">
@@ -141,16 +164,18 @@ function Report({ plan, p, who, date, editing, setPlan }: { plan: Plan; p: Portf
   const tc = typicalCount(plan);
   const lic = license(plan);
   const implNote = plan.g.impl > 0 ? `after ${fmtExec(plan.g.impl)} one-time implementation` : 'implementation quote pending, not included';
-  const be = p.breakeven === null ? 'no break-even within three years' : p.breakeven === 0 ? 'positive from the start' : `break-even in month ${p.breakeven}`;
+  const beNote = plan.g.impl > 0 ? '' : ', before implementation';
+  const be = p.breakeven === null ? 'no break-even within three years' : p.breakeven === 0 ? 'positive from the start' : `break-even in month ${p.breakeven}${beNote}`;
 
   // Tier 2: the lines that add up to the executive number.
+  const fteToday = p.staff0 / plan.g.cost;
   const lines = [
-    { key: 'rec', sign: '+' as const, value: p.capRecovered, label: 'Revenue recovered on care already delivered',
-      note: p.capDenial > 0 ? `Of which ${fmtExec(p.capDenial)} is denials prevented or recovered${p.capRecovered - p.capDenial > 1e5 ? '; the rest is write-offs, underpayments and patient balances' : ''}. Assumes it flows fully to EBITDA.` : 'Write-offs, underpayments and patient balances recovered. Assumes it flows fully to EBITDA.' },
+    ...(p.capRecovered > 0 ? [{ key: 'rec', sign: '+' as const, value: p.capRecovered, label: 'Revenue recovered on care already delivered',
+      note: p.capDenial > 0 ? `Of which ${fmtExec(p.capDenial)} is denials prevented or recovered${p.capRecovered - p.capDenial > 1e5 ? '; the rest is write-offs, underpayments and patient balances' : ''}. Assumes it flows fully to EBITDA.` : 'Write-offs, underpayments and patient balances recovered. Assumes it flows fully to EBITDA.' }] : []),
     ...(p.capNew > 0 ? [{ key: 'new', sign: '+' as const, value: p.capNew, label: 'New patient volume, before the cost of care',
       note: 'Scheduling, referral and credentialing revenue, before the cost of delivering the care.' }] : []),
     { key: 'staff', sign: '+' as const, value: p.hoursValue, label: 'Staff cost removed',
-      note: `About ${F.int(p.fte)} FTE-equivalents of work. Counts only if that work leaves the cost base (attrition, avoided hires).` },
+      note: `About ${Math.round((100 * p.hoursValue) / Math.max(p.staff0, 1))}% of today’s modelled manual work in these ${nOn === 1 ? 'process' : nOn + ' processes'} (about ${F.int(p.fte)} of ${F.int(fteToday)} FTE-equivalents; check against your RCM headcount). Counts only if that work leaves the cost base (attrition, avoided hires).` },
     { key: 'paid', sign: '−' as const, value: p.spend, label: `Paid to ${VENDOR}, license and usage`,
       note: `License ${fmtExec(lic)} a year${plan.licenseSet ? '' : ' at the ~$1,000 per $1M of NPR benchmark'}; usage at ${plan.g.price}% of today’s manual cost per transaction. Not a quote.` },
   ];
@@ -158,11 +183,11 @@ function Report({ plan, p, who, date, editing, setPlan }: { plan: Plan; p: Portf
   const kicker = 'Estimated EBITDA added a year, at full run-rate' + (p.fullRunMonth > 0 ? ` from month ${p.fullRunMonth}` : '');
   const basis = tc.typical === tc.total
     ? `Estimate on typical industry values · ${single ? '1 of 12 modules · ' + single.name : nOn + ' of 12 modules'} · for ${who} · not a quote. A 2–4 week diagnostic replaces these values with your claims data.`
-    : `Based on figures supplied${plan.hospital.trim() ? ' for ' + plan.hospital.trim() : ''}; ${tc.typical} of ${tc.total} inputs are still typical values · ${single ? '1 of 12 modules · ' + single.name : nOn + ' of 12 modules'} · not a quote.`;
+    : `Typical industry values sized to ${fmtExec(plan.g.npr)} net patient revenue; ${tc.total - tc.typical} of ${tc.total} inputs supplied${plan.hospital.trim() ? ' by ' + plan.hospital.trim() : ''} · ${single ? '1 of 12 modules · ' + single.name : nOn + ' of 12 modules'} · not a quote.`;
 
   const ranked = [...p.on].sort((a, b) => b.standalone - a.standalone);
   // Appendix rows rounded to $0.1M so they add up to the total row.
-  const showOverlap = p.overlap > 5e4;
+  const showOverlap = Math.abs(p.overlap) >= 5e4;
   const rows = roundToTotal([...ranked.map(m => m.standalone), ...(showOverlap ? [-p.overlap] : []), -lic], p.total, 1e5);
   const m1 = (v: number) => (v < 0 ? '−' : '') + '$' + (Math.abs(v) / 1e6).toFixed(1) + 'M';
   const detailMod = p.modules.find(m => m.sol.id === detailId) ?? p.modules[0];
@@ -187,7 +212,7 @@ function Report({ plan, p, who, date, editing, setPlan }: { plan: Plan; p: Portf
             <button type="button" className="roi-btn ghost sm" onClick={() => setPlan(q => withRecommendedScope(q))}>See the recommended scope (9 modules)</button>
           </div>
         )}
-        {p.implausible && <p className="flag">Above the typical range for a hospital this size ({Math.round(p.shareOfNpr * 100)}% of net patient revenue). Check the inputs before sharing.</p>}
+        {p.implausible && <p className="flag">Above the typical range for a hospital this size ({pctTxt(p.shareOfNpr * 100)} of net patient revenue). Check the inputs before sharing.</p>}
       </section>
 
       <section className="rep-tier2" aria-label="How it adds up">
@@ -202,16 +227,16 @@ function Report({ plan, p, who, date, editing, setPlan }: { plan: Plan; p: Portf
       <section className="rep-tier3">
         <p><b>Timing.</b> Year 1 about {fmtExec(p.year1)}, with go-live in month {Math.round(plan.g.golive)} and full run-rate from month {p.fullRunMonth}; {be}; about {fmtExec(p.net3y)} net over three years ({implNote}).</p>
         <p><b>Scale.</b> About {pctTxt(p.shareOfNpr * 100)} of net patient revenue.</p>
-        <p><b>Floor.</b> If freed staff time is redeployed rather than removed: about {fmtExec(p.floor)} a year.</p>
-        {excluded.length > 0 && <p><b>Not included.</b> {excluded.map(m => m.sol.name).join(', ')}. With all 12 modules: up to about {fmtExec(p.allTotal)} a year.</p>}
+        <p><b>Downside.</b> About {fmtExec(p.lowTotal)} a year if every recovery and automation rate sits at the low end of its typical range; about {fmtExec(p.floor)} if freed staff time is redeployed rather than removed.</p>
+        {excluded.length > 0 && <p><b>Not included.</b> {excluded.map(m => m.sol.name).join(', ')}{excluded.every(m => NEW_VOLUME_IDS.includes(m.sol.id)) ? ' (new patient volume, before the cost of care)' : ''}. With all 12 modules: up to about {fmtExec(p.allTotal)} a year (upper bound).</p>}
       </section>
       <p className="rep-disclosure">Assumes recovered revenue flows fully to EBITDA and that staff time no longer needed leaves the cost base. Denial modules share one denial pool and are counted once, in sequence.</p>
 
       <h2 className="rep-divider">How we got there</h2>
       <section className="rep-block">
         <h3>Cumulative net benefit, after everything paid to {VENDOR}</h3>
-        <div className="screen-only"><NetBenefitChart cumulative={p.cumulative} breakeven={p.breakeven} golive={Math.round(plan.g.golive)} /></div>
-        <div className="print-only"><NetBenefitChart cumulative={p.cumulative} breakeven={p.breakeven} golive={Math.round(plan.g.golive)} width={690} height={168} interactive={false} /></div>
+        <div className="screen-only"><NetBenefitChart cumulative={p.cumulative} breakeven={p.breakeven} golive={Math.round(plan.g.golive)} beNote={beNote} /></div>
+        <div className="print-only"><NetBenefitChart cumulative={p.cumulative} breakeven={p.breakeven} golive={Math.round(plan.g.golive)} beNote={beNote} width={690} height={168} interactive={false} /></div>
       </section>
 
       <section className="rep-block page-2">
@@ -225,23 +250,24 @@ function Report({ plan, p, who, date, editing, setPlan }: { plan: Plan; p: Portf
             <tr className="tot"><th scope="row">EBITDA added a year</th><td>{m1(rows.total)}</td></tr>
           </tbody>
         </table>
-        <p className="rep-small">Each module’s contribution is its revenue recovered plus staff cost removed, less usage, as if it were the only module. {excluded.length > 0 ? `Not included: ${excluded.map(m => m.sol.name).join(', ')}.` : ''}</p>
+        <p className="rep-small">Each module’s contribution is its revenue recovered plus staff cost removed, less its {VENDOR} usage, as if it were the only module. Of the {shown.parts[lines.findIndex(l => l.key === 'paid')]} a year paid to {VENDOR}, {fmtExec(lic)} is the platform license (row above); the rest is usage, netted inside each module’s row. {excluded.length > 0 ? `Not included: ${excluded.map(m => m.sol.name).join(', ')}.` : ''}</p>
       </section>
 
       <section className="rep-block">
         <h3>What the number rests on</h3>
         <table className="rep-table rests">
-          <thead><tr><th scope="col">Module</th><th scope="col">Revenue pool</th><th scope="col">Addressable</th><th scope="col">Recovered</th><th scope="col">Automated</th><th scope="col">Volume a year</th></tr></thead>
+          <thead><tr><th scope="col">Module</th><th scope="col">Revenue pool</th><th scope="col">Addressable</th><th scope="col">Recovered</th><th scope="col">Automated</th><th scope="col">Min / task</th><th scope="col">Volume a year</th></tr></thead>
           <tbody>
             {ranked.map(m => {
               const id = m.sol.id, inp = plan.mods[id].inp;
               return (
                 <tr key={id}>
                   <th scope="row">{m.sol.name}</th>
-                  <td>{pctTxt(inp.pool)} of NPR {entered(id, 'pool')}</td>
-                  <td>{pctTxt(inp.share * m.shareScale)}{m.shareScale < 0.999 ? '*' : ''} {entered(id, 'share')}</td>
+                  <td>{pctTxt(inp.pool)} of NPR{DENIAL_POOL_IDS.includes(id) ? ' · denials' : ''} {entered(id, 'pool')}</td>
+                  <td>{m.shareScale < 0.999 ? Math.round(inp.share * m.shareScale) + '%*' : pctTxt(inp.share)} {entered(id, 'share')}</td>
                   <td>{pctTxt(inp.capture)} {entered(id, 'capture')}</td>
                   <td>{pctTxt(inp.auto)} {entered(id, 'auto')}</td>
+                  <td>{F.int(inp.mins)} {entered(id, 'mins')}</td>
                   <td>{F.int(moduleValue(plan, id, 'units'))} {entered(id, 'units')}</td>
                 </tr>
               );
@@ -249,9 +275,9 @@ function Report({ plan, p, who, date, editing, setPlan }: { plan: Plan; p: Portf
           </tbody>
         </table>
         <p className="rep-small">
-          Hospital-wide: net patient revenue {fmtExec(plan.g.npr)}; {F.money(plan.g.cost)} per RCM employee a year; {F.int(plan.g.hpy)} paid hours each; {VENDOR} usage at {plan.g.price}% of manual cost per transaction; license {fmtExec(lic)} a year; go-live month {Math.round(plan.g.golive)}, {Math.round(plan.g.ramp)}-month ramp; EBITDA margin today {pctTxt(plan.g.margin)}.
+          {p.on.some(m => DENIAL_POOL_IDS.includes(m.sol.id)) ? `The denial modules share one denial pool of ${pctTxt(p.denial.poolPct)} of NPR, counted once. ` : ''}Hospital-wide: net patient revenue {fmtExec(plan.g.npr)}; {F.money(plan.g.cost)} per RCM employee a year; {F.int(plan.g.hpy)} paid hours each; {VENDOR} usage at {plan.g.price}% of manual cost per transaction; license {fmtExec(lic)} a year; go-live month {Math.round(plan.g.golive)}, {Math.round(plan.g.ramp)}-month ramp; EBITDA margin today {pctTxt(plan.g.margin)}.
           {p.on.some(m => m.shareScale < 0.999) ? ' * Share after counting the denial pool once: analytics and denial management work only on the denials left after prevention.' : ''}
-          {' '}Values marked entered were supplied; all others are typical values. Typical volumes and staff are set for a $500M hospital and scale with net patient revenue until entered.
+          {' '}Values marked entered were supplied; all others are typical values. {Math.abs(plan.g.npr - SIZE_BASE_NPR) < 1 ? 'Typical volumes and staff are for a $500M hospital.' : `Typical volumes and staff are scaled from a $500M reference hospital to ${fmtExec(plan.g.npr)} of net patient revenue; entered values are used as given.`}
         </p>
       </section>
 
@@ -259,10 +285,10 @@ function Report({ plan, p, who, date, editing, setPlan }: { plan: Plan; p: Portf
         <h3>Method and caveats</h3>
         <ul className="rep-list">
           <li>Per-process math follows the calculator at contiinex.com/resources/roi-calculator. Revenue recovered counts in full as EBITDA (no contribution margin).</li>
+          <li>EBITDA today about {fmtExec(p.e0)} ({pctTxt(plan.g.margin)} margin{p.rev0 < p.npr ? ', on revenue after denials' : ''}); with this estimate about {fmtExec(p.e1)}, a margin of about {pctTxt(p.m1 * 100)}. Most of the gain is recovered revenue counted in full; see the Downside line.</li>
           <li>Staff cost removed counts only if the work leaves the cost base. If freed time is redeployed instead, the estimate falls to about {fmtExec(p.floor)} a year.</li>
           <li>Denials are one pool, counted in sequence: prevention modules (eligibility, authorization, claim scrubbing, coding) each own a distinct cause; denial analytics and denial management work on what is left.</li>
           <li>Benefit starts at go-live and grows evenly to full run-rate; the license is paid from month 1.</li>
-          <li>With every recovery and automation rate at the low end of its typical range: about {fmtExec(p.lowTotal)} a year.</li>
           <li>Net return over three years: {F.oneDp.format(p.return3y)}x, that is three-year net benefit divided by three years of {VENDOR} license and usage{plan.g.impl > 0 ? ' plus implementation' : ''}.</li>
           <li>Not a quote; {VENDOR} reserves the right to adjust final pricing.</li>
         </ul>
@@ -280,10 +306,10 @@ function Report({ plan, p, who, date, editing, setPlan }: { plan: Plan; p: Portf
           </div>
           <p className="rep-small">Every step for one module{detailMod.shareScale < 0.999 ? `, with its denial share counted after prevention (${Math.round(detailMod.shareScale * 100)}%)` : ''}{detailMod.on ? '' : ' (not included)'}.</p>
           <div className="breakdown">
-            {detail.breakdown.map((sec, i) => (
-              <details key={sec.title} open={i === 4}>
-                <summary>{sec.title}</summary>
-                <table><tbody>{sec.rows.map(row => <tr key={row.label} className={row.cls}><th scope="row">{row.label}</th><td>{row.value}</td></tr>)}</tbody></table>
+            {detail.breakdown.map(sec => (
+              <details key={sec.title}>
+                <summary>{sec.title.replace(/^Total impact on P&L using .*/, 'Contribution of this module')}</summary>
+                <table><tbody>{sec.rows.filter(row => !row.label.startsWith('Hospital EBITDA')).map(row => <tr key={row.label} className={row.cls}><th scope="row">{GLOSSARY[row.label] ?? row.label}</th><td>{row.value}</td></tr>)}</tbody></table>
               </details>
             ))}
           </div>
@@ -311,14 +337,14 @@ function EditPanel({ plan, p, setPlan, openIntake }: { plan: Plan; p: Portfolio;
   return (
     <aside className="edit-panel no-print" aria-label="Edit inputs">
       <div className="edit-card">
-        <div className="card-head"><h3>Hospital</h3><button type="button" className="roi-btn primary sm" onClick={() => openIntake('hospital')}>Tailor to your hospital</button></div>
+        <div className="card-head"><h3>Hospital</h3><button type="button" id="tailor-btn" className="roi-btn primary sm" onClick={() => openIntake('hospital')}>Tailor to your hospital</button></div>
         <label className="name-field">
           <span>Hospital or health system</span>
           <input type="text" value={plan.hospital} placeholder="e.g. Riverside Health" autoComplete="organization"
             onChange={e => { const v = e.target.value.slice(0, 120); setPlan(q => ({ ...q, hospital: v })); }} />
         </label>
         <ul className="answers">
-          {assumptions.map(a => <li key={a.key}><button type="button" onClick={() => openIntake('hospital', a.key)}><span>{a.label}</span><b>{a.value}</b></button></li>)}
+          {assumptions.map(a => <li key={a.key}><button type="button" data-akey={a.key} onClick={() => openIntake('hospital', a.key)}><span>{a.label}</span><b>{a.value}</b></button></li>)}
         </ul>
       </div>
       <div className="edit-card">
@@ -352,9 +378,10 @@ function EditPanel({ plan, p, setPlan, openIntake }: { plan: Plan; p: Portfolio;
 function Intake({ plan, setPlan, questions: qs, title, start, onDone }: {
   plan: Plan; setPlan: (f: (p: Plan) => Plan) => void; questions: IQ[]; title: string; start: number; onDone: () => void;
 }) {
+  const draftFor = (i: number) => (qs[i].type === 'number' ? fieldText(qs[i].field!, qs[i].get!(plan)) : '');
   const [step, setStep] = useState(start);
   const [dir, setDir] = useState(1);
-  const [draft, setDraft] = useState('');
+  const [draft, setDraft] = useState(() => draftFor(start));
   const [error, setError] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
   const q = qs[step];
@@ -362,21 +389,19 @@ function Intake({ plan, setPlan, questions: qs, title, start, onDone }: {
   const p = portfolio(plan);
 
   useEffect(() => {
-    setError('');
-    if (q.type === 'number') setDraft(fieldText(q.field!, q.get!(plan)));
-    // Focus at once so the first keystrokes land in the new answer.
+    // Focus at once so the first keystrokes replace the new answer (its draft was set with the step).
     const el = inputRef.current ?? document.querySelector<HTMLElement>('.roi-q .roi-btn.primary');
     el?.focus({ preventScroll: true });
-    if (el instanceof HTMLInputElement && q.type === 'number') requestAnimationFrame(() => el.select());
+    if (el instanceof HTMLInputElement && q.type === 'number') el.select();
   }, [step]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const go = (n: number, d: number) => { setDir(d); setStep(n); };
+  const go = (n: number, d: number) => { setError(''); setDraft(draftFor(n)); setDir(d); setStep(n); };
   const next = () => {
     if (q.type === 'number') {
       const v = parseField(q.field!, draft);
       const err = validate(q.key, q.field!, v);
       if (err) { setError(err); inputRef.current?.focus(); return; }
-      if (v !== q.get!(plan)) setPlan(pl => q.set!(pl, v));
+      if (draft.trim() !== fieldText(q.field!, q.get!(plan))) setPlan(pl => q.set!(pl, v));
     }
     if (isLast) return onDone();
     go(step + 1, 1);
@@ -421,7 +446,7 @@ function Intake({ plan, setPlan, questions: qs, title, start, onDone }: {
       <div key={step} className={'roi-q ' + (dir < 0 ? 'enter-down' : 'enter')} aria-labelledby="qtitle">
         <p className="roi-eyebrow">{q.section}</p>
         <h2 className="qtitle" id="qtitle"><span className="qnum">{step + 1}<ChevronDown size={15} style={{ transform: 'rotate(-90deg)' }} /></span>{q.title}</h2>
-        {q.hint && <p className="qhint">{q.hint}</p>}
+        {q.hint && <p className="qhint">{q.hint}{q.type === 'modules' && <span className="kbd-hint"> Press a letter to toggle, Enter to continue.</span>}</p>}
 
         {q.type === 'modules' && (
           <div className="roi-choices" role="group" aria-labelledby="qtitle">

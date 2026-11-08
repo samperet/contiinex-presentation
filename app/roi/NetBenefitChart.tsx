@@ -4,14 +4,14 @@ import { fmtExec } from './format';
 import { HORIZON } from './portfolio';
 import { yScale } from './scale';
 
-type Props = { cumulative: number[]; breakeven: number | null; golive: number; width?: number; height?: number; interactive?: boolean };
+type Props = { cumulative: number[]; breakeven: number | null; golive: number; beNote?: string; width?: number; height?: number; interactive?: boolean };
 
 const money = (v: number) => (v === 0 ? '$0' : fmtExec(v));
 let uid = 0;
 
 // Cumulative net benefit over 36 months. Drawn at its real pixel width so text
 // stays at its set size on a phone, a projector and in print (pass `width` for print).
-export default function NetBenefitChart({ cumulative, breakeven, golive, width, height, interactive = true }: Props) {
+export default function NetBenefitChart({ cumulative, breakeven, golive, beNote = '', width, height, interactive = true }: Props) {
   const wrap = useRef<HTMLDivElement>(null);
   const [measured, setMeasured] = useState(width ?? 900);
   const [hover, setHover] = useState<number | null>(null);
@@ -37,7 +37,7 @@ export default function NetBenefitChart({ cumulative, breakeven, golive, width, 
   const xLabel = (m: number) => (m === 0 ? 'Start' : m % 12 === 0 ? `Year ${m / 12}` : `Month ${m}`);
   const merged = breakeven !== null && breakeven > 0 && golive > 0 && breakeven - golive <= 2;
   const trough = cumulative.indexOf(min);
-  const showTrough = min < 0 && Math.abs(min) > (yMax - yMin) * 0.01;
+  const showTrough = min < -500;
   const hv = hover === null ? null : cumulative[hover];
 
   const onMove = (e: React.PointerEvent<SVGRectElement>) => {
@@ -49,7 +49,7 @@ export default function NetBenefitChart({ cumulative, breakeven, golive, width, 
   return (
     <div className="net-wrap" ref={wrap}>
       <svg className="net" width={W} height={H} viewBox={`0 0 ${W} ${H}`} role="img"
-        aria-label={`Cumulative net benefit after everything paid to Contiinex: ${money(end)} after three years${breakeven ? `, break-even in month ${breakeven}` : ''}.`}>
+        aria-label={`Cumulative net benefit after everything paid to Contiinex: ${money(end)} after three years${breakeven ? `, break-even in month ${breakeven}${beNote}` : ''}.`}>
         <defs>
           <clipPath id={id + '-above'}><rect x={0} y={0} width={W} height={y(0)} /></clipPath>
           <clipPath id={id + '-below'}><rect x={0} y={y(0)} width={W} height={H} /></clipPath>
@@ -69,7 +69,7 @@ export default function NetBenefitChart({ cumulative, breakeven, golive, width, 
         {merged ? (
           <g className="marker be">
             <line x1={x(breakeven!)} x2={x(breakeven!)} y1={T - 6} y2={H - B} />
-            <text x={x(breakeven!) + 6} y={T - 12}>Go-live month {golive} · break-even month {breakeven}</text>
+            <text x={x(breakeven!) + 6} y={T - 12}>Go-live month {golive} · break-even month {breakeven}{beNote}</text>
           </g>
         ) : (
           <>
@@ -82,7 +82,7 @@ export default function NetBenefitChart({ cumulative, breakeven, golive, width, 
             {breakeven !== null && breakeven > 0 && (
               <g className="marker be">
                 <line x1={x(breakeven)} x2={x(breakeven)} y1={T + 10} y2={H - B} />
-                <text x={x(breakeven) + 6} y={T + 6}>Break-even month {breakeven}</text>
+                <text x={x(breakeven) + 6} y={T + 6}>Break-even month {breakeven}{beNote}</text>
               </g>
             )}
           </>
@@ -90,7 +90,7 @@ export default function NetBenefitChart({ cumulative, breakeven, golive, width, 
         {showTrough && (
           <g className="marker trough">
             <circle cx={x(trough)} cy={y(min)} r={4} />
-            <text x={x(trough) + 8} y={Math.min(y(min) + 4, H - B - 4)}>Peak investment {money(min)}</text>
+            <text x={x(trough) + 8} y={Math.min(y(min) + 16, H - B - 2)}>Peak investment {money(min)}</text>
           </g>
         )}
         <circle className="end-dot" cx={x(HORIZON)} cy={y(end)} r={5} />

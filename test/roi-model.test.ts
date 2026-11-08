@@ -237,3 +237,53 @@ test("rounding to a total moves each value by at most one step", () => {
   assert.equal(fmtExec(6.12e6), "$6.1M");
   assert.equal(fmtExec(930e3), "$930K");
 });
+
+// ---- Fixes from the verification review -------------------------------------------
+import { validate } from "../app/roi/questions.ts";
+
+test("the denial rate is one hospital-wide value", () => {
+  const plan = P.defaultPlan();
+  plan.mods.cod.inp.pool = 25; plan.mods.cod.set = ["pool"];
+  const back = P.sanitizePlan(JSON.parse(JSON.stringify(plan)));
+  for (const id of P.DENIAL_POOL_IDS) assert.equal(back.mods[id].inp.pool, 25, id);
+  assert.equal(back.mods.pcl.inp.pool, plan.mods.pcl.inp.pool); // patient balances are a different pool
+  const p = P.portfolio(back);
+  // The appendix still reconciles: standalone values minus the shared pool equal the module values.
+  assert.ok(Math.abs(p.standaloneSum - p.overlap - p.on.reduce((t, m) => t + m.value, 0)) < 1e-6);
+});
+
+test("unticking never raises the total, even with fine-tuned shares and captures", () => {
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  for (let trial = 0; trial < 60; trial++) {
+    const plan = P.defaultPlan();
+    for (const id of Object.keys(plan.mods)) {
+      plan.mods[id].on = rnd() > 0.3;
+      plan.mods[id].inp.share = Math.round(5 + rnd() * 90);
+      plan.mods[id].inp.capture = Math.round(5 + rnd() * 90);
+    }
+    const base = P.portfolio(plan);
+    for (const m of base.on) {
+      const w = structuredClone(plan); w.mods[m.sol.id].on = false;
+      if (m.standalone > 0) assert.ok(P.portfolio(w).total <= base.total + 1e-6, `trial ${trial}: unticking ${m.sol.id} raised the total`);
+    }
+  }
+});
+
+test("the deck slide and the calculator show the same number for one module", () => {
+  for (const sol of ROI.SOLUTIONS) for (const npr of [1e8, 5e8, 1e9, 2e9, 5e9]) {
+    const p = P.portfolio(P.singleModulePlan(sol.id, npr));
+    const slide = addUp([{ key: "c", sign: "+", value: p.cap }, { key: "s", sign: "+", value: p.hoursValue }, { key: "p", sign: "−", value: p.spend }], p.total);
+    const calc = addUp([
+      ...(p.capRecovered > 0 ? [{ key: "r", sign: "+" as const, value: p.capRecovered }] : []),
+      ...(p.capNew > 0 ? [{ key: "n", sign: "+" as const, value: p.capNew }] : []),
+      { key: "s", sign: "+", value: p.hoursValue }, { key: "p", sign: "−", value: p.spend }], p.total);
+    assert.equal(slide.total, calc.total, `${sol.id} @ ${npr}`);
+  }
+});
+
+test("implausible typed values are refused", () => {
+  const f = ROI.GLOBAL_FIELDS.npr;
+  assert.ok(validate("npr", f, 5001000e6));
+  assert.equal(validate("npr", f, 1e9), "");
+});

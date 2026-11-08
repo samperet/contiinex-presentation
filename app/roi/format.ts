@@ -39,7 +39,7 @@ export type Part = { key: string; sign: '+' | '−'; value: number };
 export function addUp(parts: Part[], total: number): { total: string; parts: string[] } {
   const signed = parts.map(p => (p.sign === '+' ? p.value : -p.value));
   if (Math.abs(total) < 1e6) return { total: fmtExec(total), parts: parts.map(p => fmtExec(p.value)) };
-  const whole = Math.abs(total) >= 10e6 && parts.every(p => Math.abs(p.value) >= 1e6);
+  const whole = Math.abs(total) >= 10e6 && parts.every(p => p.value === 0 || Math.abs(p.value) >= 1e6);
   const step = whole ? 1e6 : 1e5;
   const r = roundToTotal(signed, total, step);
   const f = (v: number) => '$' + (whole ? Math.round(Math.abs(v) / 1e6) : (Math.abs(v) / 1e6).toFixed(1)) + 'M';

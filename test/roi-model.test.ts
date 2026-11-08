@@ -89,17 +89,66 @@ test("one module with no license matches the single-process model", () => {
     assert.equal(p.total, r.D.total, sol.id);
     assert.equal(p.cap, r.D.cap, sol.id);
     assert.equal(p.spend, r.D.cnx, sol.id);
-    assert.equal(p.overlap.scale, 1, sol.id);
+    assert.equal(p.overlap, 0, sol.id);
   }
 });
 
-test("overlapping denial shares are scaled to the denial pool", () => {
+test("default scope is nine modules, without the new-volume ones", () => {
+  const plan = P.defaultPlan();
+  const on = Object.keys(plan.mods).filter(k => plan.mods[k].on);
+  assert.equal(on.length, 9);
+  for (const id of P.NEW_VOLUME_IDS) assert.equal(plan.mods[id].on, false, id);
+});
+
+test("denial modules are counted in sequence on one denial pool", () => {
+  const plan = P.defaultPlan();
+  const p = P.portfolio(plan);
+  // Prevention modules own distinct causes: 15 + 10 + 20 + 15 = 60% of denials, no scaling.
+  for (const id of P.PREVENTION_IDS) assert.ok(Math.abs(p.denial.scales[id] - 1) < 1e-9, id);
+  // Analytics and management work on what is left, so they are scaled down.
+  assert.ok(p.denial.scales.dna < 1 && p.denial.scales.dna > 0);
+  assert.ok(p.denial.scales.dnm < p.denial.scales.dna);
+  // Never more than the whole denial pool is counted.
+  assert.ok(p.denial.counted <= p.denial.pool);
+  assert.ok(p.overlap > 0);
+  // The breakdown adds up: standalone values minus the shared pool equals the sum of module values.
+  assert.ok(Math.abs(p.standaloneSum - p.overlap - p.on.reduce((t, m) => t + m.value, 0)) < 1e-6);
+});
+
+test("switching any module off never raises the total", () => {
+  const scopes = [P.defaultPlan(), P.withRecommendedScope(P.defaultPlan()), (() => { const a = P.defaultPlan(); Object.values(a.mods).forEach(m => (m.on = true)); return a; })()];
+  for (const plan of scopes) {
+    const base = P.portfolio(plan).total;
+    for (const id of Object.keys(plan.mods).filter(k => plan.mods[k].on)) {
+      const without = structuredClone(plan);
+      without.mods[id].on = false;
+      assert.ok(P.portfolio(without).total < base, `unticking ${id} raised the total`);
+    }
+  }
+});
+
+test("typical volumes and staff scale with hospital size until entered", () => {
+  const small = P.defaultPlan(); small.g.npr = 250e6;
+  const big = P.defaultPlan(); big.g.npr = 1e9;
+  assert.equal(P.moduleValue(big, "ebv", "units"), 2 * P.moduleValue(P.defaultPlan(), "ebv", "units"));
+  const a = P.portfolio(small), b = P.portfolio(big);
+  assert.ok(Math.abs(b.hours / a.hours - 4) < 1e-9);
+  assert.ok(Math.abs(b.shareOfNpr - a.shareOfNpr) < 1e-9); // same share of NPR at any size
+  // An entered value is used as entered.
+  big.mods.ebv.inp.units = 100000; big.mods.ebv.set = ["units"];
+  assert.equal(P.moduleValue(big, "ebv", "units"), 100000);
+});
+
+test("report figures add up and are reported", () => {
   const p = P.portfolio(P.defaultPlan());
-  // 12% x (15+10+20+15+40+25)% = 15% of NPR claimed against a 12% pool
-  assert.ok(Math.abs(p.overlap.claimedPct - 15) < 1e-9);
-  assert.ok(Math.abs(p.overlap.scale - 0.8) < 1e-9);
-  const denialAddr = p.on.filter(m => P.DENIAL_POOL_IDS.includes(m.sol.id)).reduce((t, m) => t + m.addressable, 0);
-  assert.ok(Math.abs(denialAddr - p.npr * 0.12) < 1);
+  assert.ok(Math.abs(p.capRecovered + p.capNew + p.hoursValue - p.spend - p.total) < 1e-6);
+  assert.equal(p.capNew, 0);
+  assert.equal(p.fullRunMonth, 6);
+  assert.ok(Math.abs(p.floor - (p.total - p.hoursValue)) < 1e-6);
+  assert.ok(p.lowTotal < p.total && p.allTotal > p.total);
+  assert.ok(p.year1 > 0 && p.year1 < p.total);
+  assert.equal(p.implausible, false);
+  assert.ok(Math.abs(p.return3y - p.net3y / (3 * p.spend)) < 1e-9);
 });
 
 test("license is charged once and follows NPR until set", () => {
@@ -138,6 +187,8 @@ test("share links round-trip the plan", () => {
   plan.hospital = "Riverside Health";
   plan.mods.cod.on = false;
   plan.mods.ebv.inp.agents = 40;
+  plan.mods.ebv.set = ["agents"];
+  plan.mods.sch.on = true;
   plan.g.npr = 1.2e9;
   const back = P.planFromHash("#" + P.planToHash(plan));
   assert.deepEqual(back, plan);
@@ -156,4 +207,33 @@ test("chart scale always contains the whole line", () => {
     assert.ok(s.ticks.includes(0), `no zero tick for ${min}..${max}`);
     assert.ok(s.ticks.every(t => t >= s.bottom - 1 && t <= s.top + 1));
   }
+});
+
+// ---- Executive number formatting -------------------------------------------------
+import { addUp, roundToTotal, fmtExec } from "../app/roi/format.ts";
+
+test("executive lines always add up to the executive number as displayed", () => {
+  const cases: [number, number, number, number][] = [[34.57e6, 0, 9.89e6, 6.12e6], [69.15e6, 0, 19.77e6, 12.25e6], [12.6e6, 0, 3.45e6, 2.89e6], [3.1e6, 0.4e6, 0.9e6, 0.7e6], [20.44e6, 5.55e6, 7.45e6, 4.45e6]];
+  for (const [rec, nv, staff, paid] of cases) {
+    const total = rec + nv + staff - paid;
+    const parts = [{ key: "r", sign: "+" as const, value: rec }, ...(nv ? [{ key: "n", sign: "+" as const, value: nv }] : []), { key: "s", sign: "+" as const, value: staff }, { key: "p", sign: "−" as const, value: paid }];
+    const out = addUp(parts, total);
+    const n = (t: string) => Number(t.replace(/[^0-9.]/g, ""));
+    const sum = out.parts.reduce((t, x, i) => t + (parts[i].sign === "+" ? n(x) : -n(x)), 0);
+    assert.ok(Math.abs(sum - n(out.total)) < 1e-9, `${out.parts.join(" ")} != ${out.total}`);
+    // The displayed total is the exact total, correctly rounded.
+    const step = Math.abs(total) >= 10e6 ? 1 : 0.1;
+    assert.ok(Math.abs(n(out.total) - total / 1e6) <= step / 2 + 1e-9, `${out.total} vs ${total}`);
+  }
+});
+
+test("rounding to a total moves each value by at most one step", () => {
+  const v = [12.34e6, 9.87e6, 5.55e6, -2.8e6, -0.5e6];
+  const total = v.reduce((t, x) => t + x, 0);
+  const r = roundToTotal(v, total, 1e5);
+  assert.ok(Math.abs(r.values.reduce((t, x) => t + x, 0) - r.total) < 1);
+  r.values.forEach((x, i) => assert.ok(Math.abs(x - v[i]) <= 1e5 + 1));
+  assert.equal(fmtExec(38.34e6), "$38M");
+  assert.equal(fmtExec(6.12e6), "$6.1M");
+  assert.equal(fmtExec(930e3), "$930K");
 });

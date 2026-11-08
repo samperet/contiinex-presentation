@@ -1,19 +1,43 @@
 'use client';
-import { useState } from 'react';
-import { fmt as F } from './model';
+import { useEffect, useRef, useState } from 'react';
+import { fmtExec } from './format';
 import { HORIZON } from './portfolio';
 import { yScale } from './scale';
 
-const W = 960, H = 300, L = 64, R = 24, T = 18, B = 34;
+type Props = { cumulative: number[]; breakeven: number | null; golive: number; width?: number; height?: number; interactive?: boolean };
 
-export default function NetBenefitChart({ cumulative, breakeven, golive }: { cumulative: number[]; breakeven: number | null; golive: number }) {
+const money = (v: number) => (v === 0 ? '$0' : fmtExec(v));
+let uid = 0;
+
+// Cumulative net benefit over 36 months. Drawn at its real pixel width so text
+// stays at its set size on a phone, a projector and in print (pass `width` for print).
+export default function NetBenefitChart({ cumulative, breakeven, golive, width, height, interactive = true }: Props) {
+  const wrap = useRef<HTMLDivElement>(null);
+  const [measured, setMeasured] = useState(width ?? 900);
   const [hover, setHover] = useState<number | null>(null);
-  const { top: yMax, bottom: yMin, ticks: ys } = yScale(Math.min(0, ...cumulative), Math.max(0, ...cumulative));
+  const id = useRef('net' + ++uid).current;
+  useEffect(() => {
+    if (width || !wrap.current || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(([e]) => setMeasured(Math.max(300, Math.round(e.contentRect.width))));
+    ro.observe(wrap.current);
+    return () => ro.disconnect();
+  }, [width]);
+
+  const W = width ?? measured;
+  const H = height ?? Math.round(Math.min(300, Math.max(210, W * 0.3)));
+  const L = 58, R = 64, T = 30, B = 30;
+  const min = Math.min(0, ...cumulative), max = Math.max(0, ...cumulative);
+  const { top: yMax, bottom: yMin, ticks } = yScale(min, max);
   const x = (m: number) => L + (m / HORIZON) * (W - L - R);
   const y = (v: number) => T + (1 - (v - yMin) / (yMax - yMin || 1)) * (H - T - B);
   const line = cumulative.map((v, m) => (m ? 'L' : 'M') + x(m).toFixed(1) + ' ' + y(v).toFixed(1)).join('');
   const area = line + `L${x(HORIZON)} ${y(0)}L${x(0)} ${y(0)}Z`;
   const end = cumulative[HORIZON];
+  const xTicks = W >= 560 ? [0, 6, 12, 24, 36] : [0, 12, 24, 36];
+  const xLabel = (m: number) => (m === 0 ? 'Start' : m % 12 === 0 ? `Year ${m / 12}` : `Month ${m}`);
+  const merged = breakeven !== null && breakeven > 0 && golive > 0 && breakeven - golive <= 2;
+  const trough = cumulative.indexOf(min);
+  const showTrough = min < 0 && Math.abs(min) > (yMax - yMin) * 0.01;
   const hv = hover === null ? null : cumulative[hover];
 
   const onMove = (e: React.PointerEvent<SVGRectElement>) => {
@@ -23,50 +47,65 @@ export default function NetBenefitChart({ cumulative, breakeven, golive }: { cum
   };
 
   return (
-    <div className="net-wrap">
-      <svg className="net" viewBox={`0 0 ${W} ${H}`} role="img"
-        aria-label={`Cumulative net benefit over ${HORIZON} months: ${F.moneyCompact(end)} by month ${HORIZON}${breakeven ? `, break-even in month ${breakeven}` : ''}.`}>
+    <div className="net-wrap" ref={wrap}>
+      <svg className="net" width={W} height={H} viewBox={`0 0 ${W} ${H}`} role="img"
+        aria-label={`Cumulative net benefit after everything paid to Contiinex: ${money(end)} after three years${breakeven ? `, break-even in month ${breakeven}` : ''}.`}>
         <defs>
-          <clipPath id="net-above"><rect x={0} y={0} width={W} height={y(0)} /></clipPath>
-          <clipPath id="net-below"><rect x={0} y={y(0)} width={W} height={H} /></clipPath>
+          <clipPath id={id + '-above'}><rect x={0} y={0} width={W} height={y(0)} /></clipPath>
+          <clipPath id={id + '-below'}><rect x={0} y={y(0)} width={W} height={H} /></clipPath>
         </defs>
-        {ys.map(v => (
+        {ticks.map(v => (
           <g key={v}>
             <line className={'grid' + (v === 0 ? ' zero' : '')} x1={L} x2={W - R} y1={y(v)} y2={y(v)} />
-            <text className="axis" x={L - 10} y={y(v) + 4} textAnchor="end">{v === 0 ? '$0' : (v < 0 ? '−' : '') + F.moneyCompact(v)}</text>
+            <text className="axis" x={L - 8} y={y(v) + 4} textAnchor="end">{money(v)}</text>
           </g>
         ))}
-        {[0, 6, 12, 18, 24, 30, 36].map(m => (
-          <text key={m} className="axis" x={x(m)} y={H - 10} textAnchor="middle">{m === 0 ? 'Start' : m % 12 === 0 ? `Year ${m / 12}` : `M${m}`}</text>
+        {xTicks.map(m => (
+          <text key={m} className="axis" x={x(m)} y={H - 8} textAnchor={m === 0 ? 'start' : m === HORIZON ? 'end' : 'middle'}>{xLabel(m)}</text>
         ))}
-        <path className="area pos" d={area} clipPath="url(#net-above)" />
-        <path className="area neg" d={area} clipPath="url(#net-below)" />
+        <path className="area pos" d={area} clipPath={`url(#${id}-above)`} />
+        <path className="area neg" d={area} clipPath={`url(#${id}-below)`} />
         <path className="curve" d={line} />
-        {golive > 0 && golive < HORIZON && (
-          <g className="marker golive">
-            <line x1={x(golive)} x2={x(golive)} y1={T} y2={H - B} />
-            <text x={x(golive) + 6} y={T + 10}>Go-live</text>
-          </g>
-        )}
-        {breakeven !== null && breakeven > 0 && (
+        {merged ? (
           <g className="marker be">
-            <line x1={x(breakeven)} x2={x(breakeven)} y1={T} y2={H - B} />
-            <circle cx={x(breakeven)} cy={y(cumulative[breakeven])} r={5} />
-            <text x={x(breakeven) + 8} y={T + 28}>Break-even · month {breakeven}</text>
+            <line x1={x(breakeven!)} x2={x(breakeven!)} y1={T - 6} y2={H - B} />
+            <text x={x(breakeven!) + 6} y={T - 12}>Go-live month {golive} · break-even month {breakeven}</text>
+          </g>
+        ) : (
+          <>
+            {golive > 0 && golive < HORIZON && (
+              <g className="marker golive">
+                <line x1={x(golive)} x2={x(golive)} y1={T - 6} y2={H - B} />
+                <text x={x(golive) + 6} y={T - 12}>Go-live month {golive}</text>
+              </g>
+            )}
+            {breakeven !== null && breakeven > 0 && (
+              <g className="marker be">
+                <line x1={x(breakeven)} x2={x(breakeven)} y1={T + 10} y2={H - B} />
+                <text x={x(breakeven) + 6} y={T + 6}>Break-even month {breakeven}</text>
+              </g>
+            )}
+          </>
+        )}
+        {showTrough && (
+          <g className="marker trough">
+            <circle cx={x(trough)} cy={y(min)} r={4} />
+            <text x={x(trough) + 8} y={Math.min(y(min) + 4, H - B - 4)}>Peak investment {money(min)}</text>
           </g>
         )}
         <circle className="end-dot" cx={x(HORIZON)} cy={y(end)} r={5} />
-        {hover !== null && hv !== null && (
+        <text className="end-label" x={x(HORIZON) + 8} y={y(end) + 4}>{money(end)}</text>
+        {interactive && hover !== null && hv !== null && (
           <g className="crosshair">
             <line x1={x(hover)} x2={x(hover)} y1={T} y2={H - B} />
             <circle cx={x(hover)} cy={y(hv)} r={5} />
           </g>
         )}
-        <rect className="hit" x={L} y={T} width={W - L - R} height={H - T - B} onPointerMove={onMove} onPointerLeave={() => setHover(null)} />
+        {interactive && <rect className="hit" x={L} y={T} width={W - L - R} height={H - T - B} onPointerMove={onMove} onPointerLeave={() => setHover(null)} />}
       </svg>
-      {hover !== null && hv !== null && (
-        <div className="net-tip" style={{ left: `${(x(hover) / W) * 100}%` }}>
-          <b>{hv < 0 ? '−' : ''}{F.moneyCompact(hv)}</b>
+      {interactive && hover !== null && hv !== null && (
+        <div className="net-tip" style={{ left: x(hover) }}>
+          <b>{money(hv)}</b>
           <span>cumulative net · month {hover}</span>
         </div>
       )}

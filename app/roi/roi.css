@@ -17,8 +17,11 @@
 .roi-page { min-height: 100svh; display: flex; flex-direction: column; padding: 0 5vw; color: var(--ink); background: radial-gradient(ellipse at 83% 42%, #fff0f3, transparent 45%); }
 .roi-top { position: sticky; top: 0; z-index: 5; height: 84px; display: flex; align-items: center; justify-content: space-between; gap: 20px; background: rgba(255, 255, 255, .92); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
 .roi-top .brand img { width: 160px; height: auto; display: block; }
-.back-link { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; letter-spacing: .5px; color: var(--body); text-decoration: none; }
-.back-link:hover { color: var(--red); }
+.tabs { display: flex; gap: 6px; align-items: center; }
+.tabs a { display: inline-flex; align-items: center; font-size: 13px; letter-spacing: .2px; padding: 9px 15px; border-radius: 100px; color: var(--body); text-decoration: none; border: 1px solid transparent; transition: background .2s ease, color .2s ease; }
+.tabs a:hover { color: var(--ink); background: var(--red-soft); }
+.tabs a.active { color: var(--red); background: rgba(221, 19, 60, .07); border-color: rgba(221, 19, 60, .2); }
+.tabs .short { display: none; }
 .roi-progress { flex: 1; height: 3px; border-radius: 3px; background: var(--line); overflow: hidden; }
 .roi-progress i { display: block; height: 100%; background: var(--red); transition: width .35s ease; }
 
@@ -155,6 +158,12 @@
 .net-tip b { font-size: 14px; font-weight: 600; }
 .net-tip span { color: rgba(255, 255, 255, .7); }
 
+/* Hospital size row (from the executive view) */
+.size-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; margin-top: 16px; }
+.size-label { font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted); }
+.size-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.roi-page .size-chips .chip { padding: 5px 13px; font-size: 13px; font-weight: 500; }
+
 /* ---- Edit panel ---- */
 .edit-panel { position: sticky; top: 100px; display: grid; gap: 16px; max-height: calc(100svh - 120px); overflow: auto; padding-right: 4px; }
 .edit-card { padding: 18px 18px 14px; border: 1px solid var(--line); border-radius: 14px; background: #fff; }
@@ -241,8 +250,10 @@
 /* Projector-height screens: keep the number and every line of the breakdown above the fold. */
 @media screen and (max-height: 820px) {
   .report-layout { padding-top: 22px; }
-  .rep-hero { padding: 20px 0 18px; }
-  .report .rep-number { font-size: 84px; margin-bottom: 10px; }
+  .size-row { margin-top: 10px; }
+  .rep-hero { padding: 16px 0 14px; }
+  .report .rep-number { font-size: 76px; margin-bottom: 8px; }
+  .rep-basis { font-size: 15px; }
   .t2-row { padding: 10px 0; }
   .t2-val { font-size: 26px; }
 }
@@ -271,7 +282,9 @@
   .roi-top { height: auto; min-height: 68px; padding: 10px 0; flex-wrap: wrap; }
   .roi-top .brand img { width: 120px; }
   .top-actions { gap: 4px 10px; }
-  .top-actions .back-link { display: none; }
+  .tabs a { padding: 8px 11px; font-size: 12px; }
+  .tabs .long { display: none; }
+  .tabs .short { display: inline; }
   .roi-screen.roi-form { align-items: flex-start; padding: 80px 0 110px; }
   .choice-group { grid-template-columns: minmax(0, 1fr); }
   .roi-dock { padding: 12px 16px; }

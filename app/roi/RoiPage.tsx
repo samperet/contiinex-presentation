@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Check, ChevronDown, ChevronUp, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronUp, X } from 'lucide-react';
 import { fmt as F, GROUPS, SOLUTIONS, summary, VENDOR, type Field } from './model';
 import NetBenefitChart from './NetBenefitChart';
 import { hospitalQuestions, moduleQuestions, type IQ } from './intake';
@@ -12,6 +12,8 @@ import { clamp, fieldText, parseField, prefix, rangeText, suffix, validate } fro
 import { addUp, fmtExec, roundToTotal, today } from './format';
 
 const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+// One-click revenue sizes; typical volumes and staff scale with revenue until entered.
+const SIZES = [250e6, 500e6, 1e9, 2e9];
 // Report wording for the model's detailed-calculation labels (model.ts stays byte-identical).
 const GLOSSARY: Record<string, string> = {
   'Total (direct + prevented) cost saved': 'Staff cost removed, less usage',
@@ -149,7 +151,10 @@ function TopBar({ children }: { children?: React.ReactNode }) {
       <a className="brand" href="./index.html"><img src="./brand/contiinex-logo.png" alt="Contiinex" width="200" height="40" /></a>
       <div className="top-actions">
         {children}
-        <a className="back-link" href="./index.html"><ArrowLeft size={16} /> Presentation</a>
+        <nav className="tabs" aria-label="Pages">
+          <a href="./index.html"><span className="long">Presentation</span><span className="short">Deck</span></a>
+          <a className="active" href="./pricing.html" aria-current="page"><span className="long">ROI calculator</span><span className="short">ROI</span></a>
+        </nav>
       </div>
     </header>
   );
@@ -206,6 +211,15 @@ function Report({ plan, p, who, date, editing, setPlan }: { plan: Plan; p: Portf
         <p className="rep-kicker">{kicker}</p>
         <h1 className="rep-number">{shown.total}</h1>
         <p className="rep-basis">{basis}</p>
+        <div className="size-row no-print" role="group" aria-label="Hospital size">
+          <span className="size-label">Hospital size</span>
+          <div className="size-chips">
+            {SIZES.map(v => (
+              <button key={v} type="button" className={'chip' + (Math.abs(plan.g.npr - v) < 1 ? ' on' : '')} aria-pressed={Math.abs(plan.g.npr - v) < 1}
+                onClick={() => setPlan(q => ({ ...q, g: { ...q.g, npr: v } }))}>{fmtExec(v)}</button>
+            ))}
+          </div>
+        </div>
         {single && (
           <div className="scope-note no-print">
             <span>This estimate covers one process, as on the presentation slide.</span>

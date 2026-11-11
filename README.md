@@ -1,6 +1,6 @@
 # Contiinex presentation
 
-Fourteen-slide, hospital-facing presentation that ALPS advisors bring to hospital leadership, with official Contiinex branding, a compounding-risk chart that builds one stage per page turn and pairs each risk with the Contiinex intervention, an interactive operating-margin calculator with a margin bridge, a pricing slide whose return summary follows the entered revenue, an ROI calculator across all twelve modules with fine-tuning one question per screen, a dismissable first-person pitch track that a customer can read or an advisor can read aloud, source notes per slide, and keyboard, swipe and footer navigation.
+Fourteen-slide, hospital-facing presentation that ALPS advisors bring to hospital leadership, with official Contiinex branding, a compounding-risk chart that builds one stage per page turn and pairs each risk with the Contiinex intervention, an interactive operating-margin calculator with a margin bridge, a pricing slide whose return summary follows the entered revenue, an ROI calculator that opens as an executive report on typical values sized to the hospital's revenue, with the full model and fine-tuning one question per screen behind Edit inputs, header tabs between the presentation and the calculator, a dismissable first-person pitch track that a customer can read or an advisor can read aloud, source notes per slide, and keyboard, swipe and footer navigation.
 
 ## GitHub Pages
 

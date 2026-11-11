@@ -124,3 +124,8 @@ footer{position:sticky;bottom:0;z-index:5;background:#fff}.talk{position:sticky;
 @media(max-width:750px){.mod{padding:16px}.mod-stats{grid-template-columns:1fr;gap:8px}.price-settings.two .derived{grid-template-columns:1fr}}
 
 .page-link{display:inline-flex;align-items:center;gap:8px;margin-top:4px;font-size:13px;color:#dd133c;text-decoration:none;border-bottom:1px solid #dd133c55;padding-bottom:2px}.page-link:hover{border-bottom-color:#dd133c}
+
+/* Header tabs and footer link to the ROI calculator */
+.tabs{display:flex;gap:6px;align-items:center}.tabs a{display:inline-flex;align-items:center;font-size:13px;letter-spacing:.2px;padding:9px 15px;border-radius:100px;color:#4e5562;text-decoration:none;border:1px solid transparent;transition:background .2s ease,color .2s ease}.tabs a:hover{color:#18191e;background:#fff0f3}.tabs a.active{color:#dd133c;background:#dd133c12;border-color:#dd133c33}.tabs .short{display:none}
+.footer-link{display:inline-flex;align-items:center;gap:6px;text-decoration:none;color:#626772;font-size:12px;letter-spacing:1px;padding:12px 10px;margin-left:2px;white-space:nowrap}.footer-link:hover{color:#dd133c}.footer-link svg{color:#dd133c}.footer-link .short{display:none}
+@media(max-width:750px){.tabs a{padding:8px 11px;font-size:12px}.tabs .long{display:none}.tabs .short{display:inline}.footer-link{display:none}}

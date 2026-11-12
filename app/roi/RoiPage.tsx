@@ -1,9 +1,9 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, ChevronDown, ChevronUp, X } from 'lucide-react';
-import { fmt as F, GROUPS, SOLUTIONS, summary, VENDOR, type Field } from './model';
+import { fmt as F, GROUPS, SOLUTIONS, summary, VENDOR, type Field, type Pair } from './model';
 import NetBenefitChart from './NetBenefitChart';
-import { hospitalQuestions, moduleQuestions, type IQ } from './intake';
+import { hospitalQuestions, moduleQuestions, walkQuestions, type IQ } from './intake';
 import {
   clearSaved, defaultPlan, DENIAL_POOL_IDS, license, SIZE_BASE_NPR, loadSaved, moduleInputs, moduleValue, MODULE_KEYS, NEW_VOLUME_IDS, planFromHash,
   planToHash, portfolio, sanitizePlan, savePlan, singleModulePlan, typicalCount, withRecommendedScope, type Plan, type Portfolio, type Saved,
@@ -89,10 +89,11 @@ export default function RoiPage() {
     return () => window.removeEventListener('beforeprint', open);
   }, []);
 
-  const openIntake = (set: 'hospital' | string, key?: string) => {
-    const qs = set === 'hospital' ? hospitalQuestions() : moduleQuestions(set);
-    if (set !== 'hospital') lastModule.current = set;
-    returnFocus.current = set === 'hospital' ? (key ? `[data-akey="${key}"]` : '#tailor-btn') : `#mod-${set} button.fine`;
+  const questionsFor = (set: string) => (set === 'hospital' ? hospitalQuestions() : set === 'all' ? walkQuestions(plan) : moduleQuestions(set));
+  const openIntake = (set: 'hospital' | 'all' | string, key?: string) => {
+    const qs = questionsFor(set);
+    if (set !== 'hospital' && set !== 'all') lastModule.current = set;
+    returnFocus.current = set === 'all' ? '#walk-btn' : set === 'hospital' ? (key ? `[data-akey="${key}"]` : '#tailor-btn') : `#mod-${set} button.fine`;
     setView({ kind: 'intake', set, step: Math.max(0, key ? qs.findIndex(q => q.key === key) : 0) });
   };
   const copyLink = () => {
@@ -113,8 +114,8 @@ export default function RoiPage() {
         <Intake
           key={view.set}
           plan={plan} setPlan={setPlan}
-          questions={view.set === 'hospital' ? hospitalQuestions() : moduleQuestions(view.set)}
-          title={view.set === 'hospital' ? 'Tailor to your hospital' : 'Fine-tune · ' + SOLUTIONS.find(s => s.id === view.set)!.name}
+          questions={questionsFor(view.set)}
+          title={view.set === 'all' ? 'Walkthrough of the variables' : view.set === 'hospital' ? 'Tailor to your hospital' : 'Fine-tune · ' + SOLUTIONS.find(s => s.id === view.set)!.name}
           start={view.step}
           onDone={() => setView({ kind: 'report' })}
         />
@@ -139,7 +140,7 @@ export default function RoiPage() {
       )}
       <div className="report-layout">
         {editing && <EditPanel plan={plan} p={p} setPlan={setPlan} openIntake={openIntake} />}
-        <Report plan={plan} p={p} who={who} date={date} editing={editing} setPlan={setPlan} />
+        <Report plan={plan} p={p} who={who} date={date} setPlan={setPlan} onWalk={() => openIntake('all')} />
       </div>
     </main>
   );
@@ -161,7 +162,7 @@ function TopBar({ children }: { children?: React.ReactNode }) {
 }
 
 // ---- The executive report -----------------------------------------------------------
-function Report({ plan, p, who, date, editing, setPlan }: { plan: Plan; p: Portfolio; who: string; date: string; editing: boolean; setPlan: (f: (p: Plan) => Plan) => void }) {
+function Report({ plan, p, who, date, setPlan, onWalk }: { plan: Plan; p: Portfolio; who: string; date: string; setPlan: (f: (p: Plan) => Plan) => void; onWalk: () => void }) {
   const [detailId, setDetailId] = useState<string>(p.on[0]?.sol.id ?? SOLUTIONS[1].id);
   const nOn = p.on.length;
   const single = nOn === 1 ? p.on[0].sol : null;
@@ -191,6 +192,17 @@ function Report({ plan, p, who, date, editing, setPlan }: { plan: Plan; p: Portf
     : `Typical industry values sized to ${fmtExec(plan.g.npr)} net patient revenue; ${tc.total - tc.typical} of ${tc.total} inputs supplied${plan.hospital.trim() ? ' by ' + plan.hospital.trim() : ''} · ${single ? '1 of 12 modules · ' + single.name : nOn + ' of 12 modules'} · not a quote.`;
 
   const ranked = [...p.on].sort((a, b) => b.standalone - a.standalone);
+  // Operational impact: the website's before-and-after pairs, added up across the selected modules.
+  const sumOn = (f: (r: Record<string, number>) => number) => p.on.reduce((t, m) => t + f(m.r), 0);
+  const hrs0 = sumOn(r => r.manualHrs), hrs1 = sumOn(r => r.afterHrs), team = sumOn(r => r.teamHrs);
+  const anyDenial = p.on.some(m => DENIAL_POOL_IDS.includes(m.sol.id));
+  const rate0 = p.denial.poolPct, rate1 = p.npr > 0 ? ((p.denial.pool - p.capDenial) / p.npr) * 100 : 0;
+  const ops: Pair[] = [
+    pair('Staff hours on these processes a year', hrs0, hrs1, v => F.intShort(v) + ' hrs', F.signed(F.pctChange(hrs0, hrs1)) + '%'),
+    pair('Share of RCM team hours on these processes', team ? (hrs0 / team) * 100 : 0, team ? (hrs1 / team) * 100 : 0, v => F.pct(v), F.signed(Math.round(((hrs1 - hrs0) / Math.max(team, 1)) * 1000) / 10) + ' pts'),
+    ...(anyDenial ? [pair('Denied revenue, % of NPR', rate0, rate1, v => F.pct(v, 2), F.signed(Math.round((rate1 - rate0) * 100) / 100) + ' pts')] : []),
+  ];
+  const overloaded = p.on.filter(m => m.r.pctHrs > 1).map(m => m.sol.name);
   // Appendix rows rounded to $0.1M so they add up to the total row.
   const showOverlap = Math.abs(p.overlap) >= 5e4;
   const rows = roundToTotal([...ranked.map(m => m.standalone), ...(showOverlap ? [-p.overlap] : []), -lic], p.total, 1e5);
@@ -219,6 +231,7 @@ function Report({ plan, p, who, date, editing, setPlan }: { plan: Plan; p: Portf
                 onClick={() => setPlan(q => ({ ...q, g: { ...q.g, npr: v } }))}>{fmtExec(v)}</button>
             ))}
           </div>
+          <button type="button" id="walk-btn" className="roi-btn primary sm walk-btn" onClick={onWalk}>Walk through the variables</button>
         </div>
         {single && (
           <div className="scope-note no-print">
@@ -251,6 +264,13 @@ function Report({ plan, p, who, date, editing, setPlan }: { plan: Plan; p: Portf
         <h3>Cumulative net benefit, after everything paid to {VENDOR}</h3>
         <div className="screen-only"><NetBenefitChart cumulative={p.cumulative} breakeven={p.breakeven} golive={Math.round(plan.g.golive)} beNote={beNote} /></div>
         <div className="print-only"><NetBenefitChart cumulative={p.cumulative} breakeven={p.breakeven} golive={Math.round(plan.g.golive)} beNote={beNote} width={690} height={168} interactive={false} /></div>
+      </section>
+
+      <section className="rep-block no-print">
+        <h3>Operational impact</h3>
+        <p className="rep-small">The contiinex.com calculator’s before-and-after view, added up across the selected modules.</p>
+        <Pairs rows={ops} />
+        {overloaded.length > 0 && <p className="flag">More manual hours than the staff on the process have: {overloaded.join(', ')}. Check the staff count or the volume.</p>}
       </section>
 
       <section className="rep-block page-2">
@@ -303,34 +323,64 @@ function Report({ plan, p, who, date, editing, setPlan }: { plan: Plan; p: Portf
           <li>Staff cost removed counts only if the work leaves the cost base. If freed time is redeployed instead, the estimate falls to about {fmtExec(p.floor)} a year.</li>
           <li>Denials are one pool, counted in sequence: prevention modules (eligibility, authorization, claim scrubbing, coding) each own a distinct cause; denial analytics and denial management work on what is left.</li>
           <li>Benefit starts at go-live and grows evenly to full run-rate; the license is paid from month 1.</li>
-          <li>Net return over three years: {F.oneDp.format(p.return3y)}x, that is three-year net benefit divided by three years of {VENDOR} license and usage{plan.g.impl > 0 ? ' plus implementation' : ''}.</li>
+          <li>Return on {VENDOR} spend: {F.oneDp.format(p.spend > 0 ? p.total / p.spend : 0)}x a year at full run-rate, as the contiinex.com calculator defines it; {F.oneDp.format(p.return3y)}x over three years, net benefit divided by three years of license and usage{plan.g.impl > 0 ? ' plus implementation' : ''}.</li>
           <li>Not a quote; {VENDOR} reserves the right to adjust final pricing.</li>
         </ul>
       </section>
 
-      {editing && (
-        <section className="rep-block no-print">
-          <div className="card-head">
-            <h3>Detailed calculation</h3>
-            <label className="roi-pick"><span className="sr-only">Module</span>
-              <select value={detailId} onChange={e => setDetailId(e.target.value)}>
-                {GROUPS.map(g => <optgroup key={g} label={g}>{SOLUTIONS.filter(s => s.group === g).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</optgroup>)}
-              </select><ChevronDown size={15} />
-            </label>
-          </div>
-          <p className="rep-small">Every step for one module{detailMod.shareScale < 0.999 ? `, with its denial share counted after prevention (${Math.round(detailMod.shareScale * 100)}%)` : ''}{detailMod.on ? '' : ' (not included)'}.</p>
-          <div className="breakdown">
-            {detail.breakdown.map(sec => (
-              <details key={sec.title}>
-                <summary>{sec.title.replace(/^Total impact on P&L using .*/, 'Contribution of this module')}</summary>
-                <table><tbody>{sec.rows.filter(row => !row.label.startsWith('Hospital EBITDA')).map(row => <tr key={row.label} className={row.cls}><th scope="row">{GLOSSARY[row.label] ?? row.label}</th><td>{row.value}</td></tr>)}</tbody></table>
-              </details>
-            ))}
-          </div>
-        </section>
-      )}
+      <details className="rep-block no-print module-detail">
+        <summary>Per-module detail, as the contiinex.com calculator shows it</summary>
+        <div className="card-head">
+          <label className="roi-pick"><span className="sr-only">Module</span>
+            <select value={detailId} onChange={e => setDetailId(e.target.value)}>
+              {GROUPS.map(g => <optgroup key={g} label={g}>{SOLUTIONS.filter(s => s.group === g).map(s => <option key={s.id} value={s.id}>{s.name}{plan.mods[s.id].on ? '' : ' (not included)'}</option>)}</optgroup>)}
+            </select><ChevronDown size={15} />
+          </label>
+        </div>
+        <p className="rep-small">This module on its own, before the platform license{detailMod.shareScale < 0.999 ? `, with its denial share counted after prevention (${Math.round(detailMod.shareScale * 100)}% of its stand-alone share)` : ''}.</p>
+        <div className="md-grid">
+          <div><p className="k">Contribution a year</p><p className="v">{fmtExec(detailMod.value)}</p><p className="s">{detail.revKicker}: {fmtExec(detail.revVal)} · staff cost removed, less usage: {fmtExec(detail.costVal)}</p></div>
+          <div><p className="k">Return on usage spend</p><p className="v">{detail.roiTxt}</p><p className="s">{detail.roiSub}</p></div>
+          <div><p className="k">Manual cost today</p><p className="v">{detail.manualCostTxt}</p><p className="s">{detail.manualCostSub}</p></div>
+          <div><p className="k">Per {detailMod.sol.one}</p><p className="v">{detail.cpuTxt} → {detail.priceTxt}</p><p className="s">manual today → {VENDOR} at {plan.g.price}% of it · {detail.automatedSub}</p></div>
+        </div>
+        <h4>Process time</h4>
+        <p className="rep-small">{detail.timeSub}</p>
+        <Pairs rows={detail.timeRows} />
+        <h4>{detailMod.sol.denial ? 'Denial impact' : 'Revenue impact'}</h4>
+        <p className="rep-small">{detail.leakSub}</p>
+        <Pairs rows={detail.leakRows} />
+        <h4>Every step</h4>
+        <div className="breakdown">
+          {detail.breakdown.map(sec => (
+            <details key={sec.title}>
+              <summary>{sec.title.replace(/^Total impact on P&L using .*/, 'Contribution of this module')}</summary>
+              <table><tbody>{sec.rows.filter(row => !row.label.startsWith('Hospital EBITDA')).map(row => <tr key={row.label} className={row.cls}><th scope="row">{GLOSSARY[row.label] ?? row.label}</th><td>{row.value}</td></tr>)}</tbody></table>
+            </details>
+          ))}
+        </div>
+      </details>
 
     </article>
+  );
+}
+
+// Before-and-after bars, as on the contiinex.com calculator.
+function pair(label: string, before: number, after: number, f: (v: number) => string, delta: string): Pair {
+  const max = Math.max(before, after, 1e-9);
+  return { label, delta, beforeTxt: f(before), afterTxt: f(after), beforePct: (before / max) * 100, afterPct: Math.max((after / max) * 100, 0.6) };
+}
+function Pairs({ rows }: { rows: Pair[] }) {
+  return (
+    <div className="pairs">
+      {rows.map(r => (
+        <div className="pair" key={r.label}>
+          <div className="pair-top"><span>{r.label}</span><span className="chg">{r.delta}</span></div>
+          <div className="pbar"><span className="pl">Today</span><span className="track"><span className="bar before" style={{ width: r.beforePct + '%' }} /></span><b>{r.beforeTxt}</b></div>
+          <div className="pbar"><span className="pl">With {VENDOR}</span><span className="track"><span className="bar after" style={{ width: r.afterPct + '%' }} /></span><b>{r.afterTxt}</b></div>
+        </div>
+      ))}
+    </div>
   );
 }
 

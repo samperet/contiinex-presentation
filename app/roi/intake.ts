@@ -69,3 +69,9 @@ export function moduleQuestions(id: string): IQ[] {
       warn: q.warn ? (p: Plan) => q.warn!(compute(moduleInputs(p, sol), sol)) : undefined,
     }));
 }
+
+// The full walkthrough: hospital-wide questions, then each selected module's own.
+// Rebuilt on every render, so changing the scope on the first step updates the rest.
+export function walkQuestions(p: Plan): IQ[] {
+  return [...hospitalQuestions(), ...Object.keys(p.mods).filter(id => p.mods[id].on).flatMap(id => moduleQuestions(id))];
+}

@@ -287,3 +287,24 @@ test("implausible typed values are refused", () => {
   assert.ok(validate("npr", f, 5001000e6));
   assert.equal(validate("npr", f, 1e9), "");
 });
+
+// ---- Walkthrough covers every input of the contiinex.com calculator ----------------
+import { walkQuestions } from "../app/roi/intake.ts";
+
+test("the walkthrough asks for every variable the website calculator uses", () => {
+  const plan = P.defaultPlan();
+  Object.values(plan.mods).forEach(m => (m.on = true));
+  const qs = walkQuestions(plan);
+  const keys = new Set(qs.map(q => q.key));
+  // Hospital-wide inputs on contiinex.com (its platform fee is our annual license), plus the timeline.
+  for (const k of ["npr", "cost", "hpy", "price", "margin", "license", "impl", "golive", "ramp"]) assert.ok(keys.has(k), k);
+  // Every per-process input, for every module, including rework where the website has it.
+  for (const sol of ROI.SOLUTIONS) {
+    const asked = qs.filter(q => q.section.startsWith(sol.name)).map(q => q.key);
+    const want = ["agents", "mins", "units", "pool", "share", "capture", "auto", ...(sol.rework ? ["rework"] : [])];
+    assert.deepEqual([...asked].sort(), want.sort(), sol.id);
+  }
+  // Only the selected modules are walked through.
+  const nine = walkQuestions(P.defaultPlan());
+  assert.equal(nine.filter(q => q.section.startsWith("Patient Scheduling")).length, 0);
+});
